@@ -253,7 +253,7 @@ pub fn build(src: &str) -> Result<Context> {
                 let content = expr.content.trim();
                 if content != "else" {
                     reject_unsupported(content, &expr)?;
-                    scan_expression(&mut frames, expr.content, Mark::Value)?;
+                    scan_expression(&mut frames, expr.content, Mark::Value, &expr)?;
                 }
             }
             ExpressionType::Open => open_block(&mut frames, &mut opened, &expr)?,
@@ -290,40 +290,90 @@ fn reject_unsupported(content: &str, expr: &Expression<'_>) -> Result<()> {
 
 /// Records every variable an expression reads.
 ///
-/// A bare `{{ name }}` is a variable. `{{ format "{:.2}" price }}` is a helper call, so the head is
-/// a helper name and only the arguments are variables — mirroring
-/// [`crate::parser::compiler::Compile::resolve`].
-fn scan_expression(frames: &mut [Frame], content: &str, mark: Mark) -> Result<()> {
+/// A bare `{{ name }}` is a variable. Anything with a head plus arguments is a helper call, which
+/// this crate does not have — see [`check_helper`].
+fn scan_expression(
+    frames: &mut [Frame],
+    content: &str,
+    mark: Mark,
+    expr: &Expression<'_>,
+) -> Result<()> {
     let token = match Token::first(content)? {
         Some(token) => token,
         None => return Ok(()),
     };
     if let TokenType::SubExpression(_) = token.token_type {
-        return scan_expression(frames, token.value, Mark::Value);
+        return Err(unsupported("a sub-expression like `(helper arg)`", expr));
     }
     match token.next()? {
         // Head plus arguments: a helper call. Only the arguments name data.
         Some(first_arg) => {
+            check_helper(&token, expr)?;
             let mut arg = first_arg;
             loop {
-                scan_token(frames, &arg, mark)?;
+                scan_token(frames, &arg, mark, expr)?;
                 arg = match arg.next()? {
                     Some(next) => next,
                     None => return Ok(()),
                 };
             }
         }
-        None => scan_token(frames, &token, mark),
+        None => scan_token(frames, &token, mark, expr),
     }
 }
 
-fn scan_token(frames: &mut [Frame], token: &Token<'_>, mark: Mark) -> Result<()> {
+fn scan_token(
+    frames: &mut [Frame],
+    token: &Token<'_>,
+    mark: Mark,
+    expr: &Expression<'_>,
+) -> Result<()> {
     match token.token_type {
         TokenType::Variable => record(frames, token.value, mark),
-        TokenType::SubExpression(_) => scan_expression(frames, token.value, Mark::Value),
-        // `@index` and friends are supplied by the block, and literals need no data.
-        TokenType::PrivateVariable | TokenType::Literal => Ok(()),
+        TokenType::SubExpression(_) => {
+            Err(unsupported("a sub-expression like `(helper arg)`", expr))
+        }
+        // A block supplies these rather than the caller, so none of them names data.
+        TokenType::PrivateVariable => check_private(token.value, expr),
+        TokenType::Literal => Ok(()),
     }
+}
+
+/// The `@…` variables a block can supply.
+const PRIVATE: [&str; 1] = ["index"];
+
+/// Rejects a helper call, rather than emitting a call to a function that does not exist and letting
+/// the Rust compiler complain about it.
+///
+/// There are no inline helpers. A helper is Rust code, and a template that needs Rust code stops
+/// being something a designer can own — so anything a helper would do belongs in the wiring instead.
+fn check_helper(head: &Token<'_>, expr: &Expression<'_>) -> Result<()> {
+    if let TokenType::Variable = head.token_type {
+        return Err(ParseError::new(
+            &format!(
+                "`{}` is a helper, and helpers are out of scope — they would be Rust code inside a \
+                 template. Do it in Rust when you set the value instead, e.g. \
+                 `format!(\"{{:.2}}\", price)`",
+                head.value
+            ),
+            expr,
+        ));
+    }
+    Ok(())
+}
+
+/// Rejects an `@…` variable that no block supplies.
+fn check_private(name: &str, expr: &Expression<'_>) -> Result<()> {
+    let name = name.trim_start_matches("../");
+    if PRIVATE.contains(&name) {
+        return Ok(());
+    }
+    Err(unsupported(&format!("`@{}`", name), expr))
+}
+
+/// A construct that is real Handlebars but not implemented here.
+fn unsupported(what: &str, expr: &Expression<'_>) -> ParseError {
+    ParseError::new(&format!("{} is not supported yet", what), expr)
 }
 
 /// Notes that the template reads `var`, in whichever scope `var` resolves to.
@@ -411,7 +461,7 @@ fn open_block<'a>(
         "with" => false,
         "if" | "unless" => {
             if let Some(subject) = head.next()? {
-                scan_token(frames, &subject, Mark::Condition)?;
+                scan_token(frames, &subject, Mark::Condition, expr)?;
             }
             opened.push(Opened {
                 name: head.value,
@@ -710,10 +760,16 @@ mod tests {
         assert_eq!(names(sequence(rows, "rows")), ["name"]);
     }
 
+    /// A helper is Rust code, so a template cannot call one. Rejecting it here means the developer
+    /// gets a message about their template rather than "cannot find function" from rustc.
     #[test]
-    fn helper_arguments_are_variables_but_helper_names_are_not() {
-        let context = ctx(r#"Price: ${{format "{:.2}" price}}"#);
-        assert_eq!(names(&context), ["price"]);
+    fn a_helper_call_is_rejected_by_name() {
+        let err = build(r#"Price: ${{format "{:.2}" price}}"#).unwrap_err();
+        assert!(
+            err.to_string().contains("format") && err.to_string().contains("helper"),
+            "error should name the helper: {}",
+            err
+        );
     }
 
     #[test]

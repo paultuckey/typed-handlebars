@@ -131,6 +131,61 @@ describe('Handlebars Reference Tests', () => {
         expect(template({ id: 1, name: "Tom & Jerry" })).toBe('<li id="r1">Tom &amp; Jerry</li>');
     });
 
+    // The rest of the supported subset, so every construct the README lists as working is checked
+    // against real handlebars.js as well as against the Rust implementation.
+
+    it('each_index', () => {
+        const template = Handlebars.compile('{{#each rows}}{{@index}}:{{name}} {{/each}}');
+        expect(template({ rows: [{ name: "a" }, { name: "b" }] })).toBe('0:a 1:b ');
+    });
+
+    it('each_else', () => {
+        const template = Handlebars.compile('{{#each rows}}{{name}}{{else}}none{{/each}}');
+        expect(template({ rows: [{ name: "a" }] })).toBe('a');
+        expect(template({ rows: [] })).toBe('none');
+    });
+
+    it('unless_else', () => {
+        const template = Handlebars.compile('{{#unless a}}no{{else}}yes{{/unless}}');
+        expect(template({ a: false })).toBe('no');
+        expect(template({ a: true })).toBe('yes');
+    });
+
+    it('each_block_param', () => {
+        const template = Handlebars.compile('{{#each rows as |row|}}[{{row.name}}]{{/each}}');
+        expect(template({ rows: [{ name: "a" }, { name: "b" }] })).toBe('[a][b]');
+    });
+
+    it('parent_scope', () => {
+        const template = Handlebars.compile('{{#each rows}}{{name}} of {{../company}};{{/each}}');
+        expect(template({ company: "Studio One", rows: [{ name: "King" }] }))
+            .toBe('King of Studio One;');
+    });
+
+    it('whitespace_trimming', () => {
+        const template = Handlebars.compile('  {{~#if some ~}}   Hello{{~/if~}}');
+        expect(template({ some: true })).toBe('Hello');
+    });
+
+    // KNOWN DIVERGENCE. In handlebars.js a raw block calls a helper of that name and renders
+    // whatever it returns, so with no helper registered the block renders as nothing. dry-handlebars
+    // has no custom helpers, and always passes the content through — i.e. it behaves as though a
+    // passthrough helper were registered, which is the second case below.
+    it('literal_block_needs_a_helper_in_handlebars_js', () => {
+        const source = '{{{{skip}}}}wang doodle{{{{/skip}}}}';
+        expect(Handlebars.compile(source)({})).toBe('');
+
+        Handlebars.registerHelper('skip', function (this: unknown, options: any) {
+            return options.fn();
+        });
+        expect(Handlebars.compile(source)({})).toBe('wang doodle');
+    });
+
+    it('comments', () => {
+        const template = Handlebars.compile('Note: {{! ignored }}and {{!-- {{also_ignored}} --}}done');
+        expect(template({})).toBe('Note: and done');
+    });
+
     it('it_works', () => {
         const template = Handlebars.compile('Hello {{{name}}}!');
         const result = template({ name: "King" });
@@ -145,17 +200,5 @@ describe('Handlebars Reference Tests', () => {
         expect(result).toBe('wang doodle {{{{/dandy}}}}');
     });
 
-    it('test_format_number', () => {
-        Handlebars.registerHelper('format', function(fmt, value) {
-            if (fmt === "{:.2}" && typeof value === 'number') {
-                return value.toFixed(2);
-            }
-            return value;
-        });
-
-        const template = Handlebars.compile('Price: ${{format "{:.2}" price}}');
-        const result = template({ price: 12.2345 });
-        expect(result).toBe('Price: $12.23');
-    });
 });
 

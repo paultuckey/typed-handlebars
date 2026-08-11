@@ -1,20 +1,28 @@
-### Development
+
+## Development
 
 ```shell
-cargo fmt 
+cargo fmt
 ```
 
 ```shell
-cargo clippy 
+cargo clippy
 ```
 
 ```shell
-cargo test 
+cargo test
 ```
 
-`dry-handlebars/tests/ui/` holds compile-fail tests that pin the error messages a developer sees when
-they get the wiring wrong. After changing a diagnostic on purpose, regenerate the expected output and
-read the diff:
+`reference-ts/` runs the same templates through real handlebars.js, so the supported subset above is
+checked against the language it claims to implement rather than against itself:
+
+```shell
+cd reference-ts && npm install && npm test
+```
+
+`dry-handlebars/tests/ui/` holds compile-fail tests pinning the error messages a developer sees when
+a template or its wiring is wrong. After changing a diagnostic on purpose, regenerate the expected
+output and read the diff:
 
 ```shell
 TRYBUILD=overwrite cargo test -p dry-handlebars --test ui

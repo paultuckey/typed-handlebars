@@ -74,28 +74,42 @@ templates::button_builder::new().btn_id(42).render()   // btn_name renders as no
 ```
 
 
-## Features
+## What is supported
 
-Still in alpha stage, only a subset of handlebars functionality is supported. Specifically:
+Still alpha. The table below is the whole of it — anything not listed is a compile error naming the
+construct, never a silent difference and never a Rust type error you would have to decode.
 
-- `{{ }}` HTML-escapes, `{{{ }}}` does not
-- Uses `Display` trait for variables
-- Get a struct and a template function for a `str`
-- An optional builder per template, with one named setter per variable; anything left unset renders
-  empty, the way Handlebars treats an undefined variable
-- Macro for a directory of templates, single file or a string
-- Partials (e.g. `{{> row}}`) -> the partial renders against the context it was included from, and
-  still has its own type for standalone use
-- Simple top level keys (e.g. `{{ todo_id }}`) -> Fields must implement the `Display` trait
-- Item properties (e.g. `{{ person.name }}`) -> a `person` type is generated, fields must implement the `Display` trait
-- If and unless helpers (e.g. `{{#if ...}} ... {{/if}}`) -> Handlebars truthiness: absent, `false`, `""`, `0` and an
-  empty list are falsy. Testing a variable does not stop you printing it, so `{{#if title}}{{title}}{{/if}}` works
-- If/else helpers (e.g. `{{#if ...}} xxx {{ else }} yyy {{/if}}`)
-- For loops (e.g. `{{#each items}} ... {{/each}}`) -> an item type is generated, and the list can be anything
-  slice-backed (`Vec<T>`, `&Vec<T>`, `&[T]`, `[T; N]`)
+### Works
 
-Every type is generated from the template — there is no way, and no need, to name a Rust type in the macro call or in
-the `.hbs` file. Fields are generic, so you pass whatever you already have (`&str`, `String`, `u32`, …).
+| Construct                                   | Notes                                                                   |
+|---------------------------------------------|-------------------------------------------------------------------------|
+| `{{ name }}`                                | HTML-escaped                                                            |
+| `{{{ name }}}`                              | raw, for markup you have already rendered                               |
+| `{{ person.name }}`                         | a `person` record is generated                                          |
+| `{{ ../name }}`                             | reaches the enclosing scope                                             |
+| `{{#if}}` / `{{#unless}}` / `{{else}}`      | Handlebars truthiness; testing a variable does not stop you printing it |
+| `{{#each rows}}`                            | with `{{this}}`, `{{@index}}`, `{{else}}`, and `as \|row\|`             |
+| `{{#with person}}`                          | see the divergence below                                                |
+| `{{> row}}`                                 | partials, rendered against the context they were included from          |
+| `{{! … }}` / `{{!-- … --}}`                 | comments                                                                |
+| `{{~ … ~}}`                                 | whitespace trimming                                                     |
+| `\{{ … }}` and `{{{{raw}}}} … {{{{/raw}}}}` | literal output                                                          |
+
+### Not yet
+
+`{{else if}}` · `{{@key}}` `{{@value}}` `{{@first}}` `{{@last}}` `{{@root}}` · `{{lookup}}` ·
+sub-expressions `( … )` · `{{#with}}` with `{{else}}` · partial arguments (`{{> row this}}`) ·
+inline partials (`{{#*inline}}`) · `{{!-- … --~}}` · lists that are not slice-backed (`HashMap`,
+`VecDeque`) · handlebars.js's standalone-partial indentation.
+
+### Out of scope
+
+**Helpers** A helper is Rust code, and a template that needs Rust code stops
+being something the designer can own. `{{myhelper x}}` and `{{log}}` are compile errors naming the
+helper. Anything a helper would have done belongs in the wiring.
+
+**Runtime template loading.** Templates are compiled into your binary, so there is nothing to load
+and no dynamic partial names.
 
 ### Partials
 

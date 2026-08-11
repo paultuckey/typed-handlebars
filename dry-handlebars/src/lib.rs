@@ -356,6 +356,45 @@ mod tests {
         );
     }
 
+    /// `{{@index}}` inside `{{#each}}`. Mirrored in `reference-ts`.
+    #[test]
+    fn each_index() {
+        mod template {
+            crate::str!("test", r#"{{#each rows}}{{@index}}:{{name}} {{/each}}"#);
+        }
+        assert_eq!(
+            template::test(vec![
+                template::test_rows_item::new("a"),
+                template::test_rows_item::new("b"),
+            ])
+            .render(),
+            "0:a 1:b "
+        );
+    }
+
+    /// `{{else}}` inside `{{#each}}` covers the empty list. Mirrored in `reference-ts`.
+    #[test]
+    fn each_else() {
+        mod template {
+            crate::str!("test", r#"{{#each rows}}{{name}}{{else}}none{{/each}}"#);
+        }
+        assert_eq!(
+            template::test(vec![template::test_rows_item::new("a")]).render(),
+            "a"
+        );
+        assert_eq!(template::test_builder::new().render(), "none");
+    }
+
+    /// `{{else}}` inside `{{#unless}}`. Mirrored in `reference-ts`.
+    #[test]
+    fn unless_else() {
+        mod template {
+            crate::str!("test", r#"{{#unless a}}no{{else}}yes{{/unless}}"#);
+        }
+        assert_eq!(template::test(false).render(), "no");
+        assert_eq!(template::test(true).render(), "yes");
+    }
+
     #[test]
     fn unless_helper() {
         mod template {
@@ -770,28 +809,6 @@ mod tests {
             );
         }
         assert_eq!(template::test().render(), "wang doodle {{{{/dandy}}}}");
-    }
-
-    /// A helper's output goes through `{{ }}`, so it is escaped like anything else.
-    #[test]
-    fn format_helper_output_is_escaped() {
-        mod escaped {
-            crate::str!("test", r#"[{{format "{:>8}" value}}]"#);
-        }
-        assert_eq!(escaped::test("a<b>").render(), "[    a&lt;b&gt;]");
-
-        mod raw {
-            crate::str!("test", r#"[{{{format "{:>8}" value}}}]"#);
-        }
-        assert_eq!(raw::test("a<b>").render(), "[    a<b>]");
-    }
-
-    #[test]
-    fn test_format_number() {
-        mod template {
-            crate::str!("test", "Price: ${{format \"{:.2}\" price}}");
-        }
-        assert_eq!(template::test(12.2345f64).render(), "Price: $12.23");
     }
 
     // #[test]

@@ -156,7 +156,6 @@ enum PendingWrite<'a> {
     Raw(&'a str),
     /// Expression to evaluate and write, wrapped in the given prefix and postfix
     Expression((Expression<'a>, &'static str, &'static str)),
-    Format((&'a str, &'a str, &'a str, &'static str, &'static str)),
 }
 
 /// Rust code generation state
@@ -577,7 +576,6 @@ impl Compiler {
             match pending {
                 PendingWrite::Raw(raw) => rust.code.push_str(self.escape(raw).as_ref()),
                 PendingWrite::Expression(_) => rust.code.push_str("{}"),
-                PendingWrite::Format(_) => rust.code.push_str("{}"),
             }
         }
         rust.code.push('"');
@@ -595,71 +593,12 @@ impl Compiler {
                         rust,
                     )?;
                 }
-                PendingWrite::Format((raw, format, content, prefix, postfix)) => {
-                    // Formatted through `format_args!` rather than inline, so that `{{ }}` can
-                    // wrap the result in the escaper just like any other value.
-                    rust.code.push_str(prefix);
-                    rust.code.push_str("format_args!(\"");
-                    rust.code.push_str(format);
-                    rust.code.push('"');
-                    compile.resolve(
-                        &Expression {
-                            expression_type: ExpressionType::Raw,
-                            prefix: ", ",
-                            content,
-                            postfix: "",
-                            raw,
-                        },
-                        rust,
-                    )?;
-                    rust.code.push(')');
-                    rust.code.push_str(postfix);
-                }
                 _ => (),
             }
         }
         rust.code.push_str(")?;");
         pending.clear();
         Ok(())
-    }
-
-    fn select_write<'a>(
-        expression: &Expression<'a>,
-        (prefix, postfix): (&'static str, &'static str),
-    ) -> Result<PendingWrite<'a>> {
-        if let Some(token) = Token::first(expression.content)? {
-            if let TokenType::Variable = token.token_type {
-                if token.value != "format" {
-                    return Ok(PendingWrite::Expression((*expression, prefix, postfix)));
-                }
-                let pattern = match token.next()? {
-                    Some(token) => token,
-                    _ => {
-                        return Ok(PendingWrite::Expression((*expression, prefix, postfix)));
-                    }
-                };
-                let value = match pattern.next() {
-                    Ok(Some(token)) => token,
-                    _ => return Err(ParseError::new("format requires 2 arguments", expression)),
-                };
-                if let TokenType::Literal = pattern.token_type {
-                    if pattern.value.starts_with('"') && pattern.value.ends_with('"') {
-                        return Ok(PendingWrite::Format((
-                            expression.raw,
-                            &pattern.value[1..pattern.value.len() - 1],
-                            value.value,
-                            prefix,
-                            postfix,
-                        )));
-                    }
-                }
-                return Err(ParseError::new(
-                    "first argument of format must be a string literal",
-                    expression,
-                ));
-            }
-        }
-        Ok(PendingWrite::Expression((*expression, prefix, postfix)))
     }
 
     /// Compiles a template
@@ -682,13 +621,19 @@ impl Compiler {
                 pending.push(PendingWrite::Raw(prefix));
             }
             match expression_type {
-                ExpressionType::Raw => pending.push(Self::select_write(&expr, WRITE_RAW)?),
+                ExpressionType::Raw => {
+                    pending.push(PendingWrite::Expression((expr, WRITE_RAW.0, WRITE_RAW.1)))
+                }
                 ExpressionType::HtmlEscaped => {
                     if *content == "else" {
                         self.commit_pending(&mut pending, &mut compile, &mut rust)?;
                         compile.handle_else(&expr, &mut rust)?
                     } else {
-                        pending.push(Self::select_write(&expr, WRITE_ESCAPED)?)
+                        pending.push(PendingWrite::Expression((
+                            expr,
+                            WRITE_ESCAPED.0,
+                            WRITE_ESCAPED.1,
+                        )))
                     }
                 }
                 ExpressionType::Open => {

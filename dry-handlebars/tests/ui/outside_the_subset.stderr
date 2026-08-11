@@ -1,0 +1,17 @@
+error: line 1, column 3: `myhelper` is a helper, and helpers are out of scope — they would be Rust code inside a template. Do it in Rust when you set the value instead, e.g. `format!("{:.2}", price)`
+ --> tests/ui/outside_the_subset.rs:4:34
+  |
+4 |     dry_handlebars::str!("page", "{{myhelper x}}");
+  |                                  ^^^^^^^^^^^^^^^^
+
+error: line 1, column 3: a sub-expression like `(helper arg)` is not supported yet
+ --> tests/ui/outside_the_subset.rs:8:34
+  |
+8 |     dry_handlebars::str!("page", "{{(lookup a 1)}}");
+  |                                  ^^^^^^^^^^^^^^^^^^
+
+error: line 1, column 17: `@key` is not supported yet
+  --> tests/ui/outside_the_subset.rs:12:34
+   |
+12 |     dry_handlebars::str!("page", "{{#each rows}}{{@key}}{{/each}}");
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
