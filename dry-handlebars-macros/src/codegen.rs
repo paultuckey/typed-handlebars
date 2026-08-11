@@ -131,13 +131,18 @@ impl quote::ToTokens for Marker {
 
 const MARKER: Marker = Marker;
 
-/// Names generic parameters `T0`, `T1`, … across one template so they never collide.
-struct Counter(usize);
+/// State shared across one template's code generation.
+struct State {
+    /// Names generic parameters `T0`, `T1`, … so they never collide.
+    counter: usize,
+    /// How generated code reaches the runtime crate, which depends on what the consumer called it.
+    runtime: TokenStream,
+}
 
-impl Counter {
+impl State {
     fn next(&mut self, prefix: &str) -> Ident {
-        let ident = format_ident!("{}{}", prefix, self.0);
-        self.0 += 1;
+        let ident = format_ident!("{}{}", prefix, self.counter);
+        self.counter += 1;
         ident
     }
 }
@@ -156,12 +161,21 @@ impl Counter {
 /// The exception is a field whose type the caller declared in Rust: there is no empty we can invent
 /// for someone else's type, so its marker implements nothing and leaving it out is a compile error
 /// naming the variable.
-fn builder_for(type_name: &Ident, shape: &Shape, renders: bool) -> TokenStream {
+fn builder_for(
+    type_name: &Ident,
+    shape: &Shape,
+    renders: bool,
+    runtime: &TokenStream,
+) -> TokenStream {
     if shape.names.is_empty() {
         // A template with no variables has nothing to wire up.
         return quote! {};
     }
     let builder_name = format_ident!("{}_builder", type_name);
+    let builder_doc = format!(
+        "Builds a [`{}`] by naming each variable, so nothing depends on argument order.",
+        type_name
+    );
     let names = &shape.names;
     let types = &shape.types;
     let params = &shape.params;
@@ -181,7 +195,7 @@ fn builder_for(type_name: &Ident, shape: &Shape, renders: bool) -> TokenStream {
             .enumerate()
             .map(|(slot, ident)| {
                 if slot == index {
-                    quote! { ::dry_handlebars::Set<__DhValue> }
+                    quote! { #runtime::Set<__DhValue> }
                 } else {
                     quote! { #ident }
                 }
@@ -189,12 +203,17 @@ fn builder_for(type_name: &Ident, shape: &Shape, renders: bool) -> TokenStream {
             .collect();
         let moved = names.iter().enumerate().map(|(field, ident)| {
             if field == index {
-                quote! { #ident: ::dry_handlebars::Set(value) }
+                quote! { #ident: #runtime::Set(value) }
             } else {
                 quote! { #ident: self.#ident }
             }
         });
+        let doc = format!(
+            "Sets the `{}` variable. Leaving it unset renders it empty.",
+            shape.plain_names[index]
+        );
         quote! {
+            #[doc = #doc]
             pub fn #name<__DhValue>(self, value: __DhValue) -> #builder_name<#(#returned),*> {
                 #builder_name { #(#moved),* }
             }
@@ -205,7 +224,7 @@ fn builder_for(type_name: &Ident, shape: &Shape, renders: bool) -> TokenStream {
     // them be method-level generics: without it they would be unconstrained.
     let build_bounds = quote! {
         where
-            #(#slots: ::dry_handlebars::IsSet<Value = #types>,)*
+            #(#slots: #runtime::IsSet<Value = #types>,)*
             #(#predicates,)*
     };
 
@@ -227,7 +246,7 @@ fn builder_for(type_name: &Ident, shape: &Shape, renders: bool) -> TokenStream {
         .zip(&shape.empties)
         .map(|(marker, (ty, value))| {
             quote! {
-                impl ::dry_handlebars::IsSet for #marker {
+                impl #runtime::IsSet for #marker {
                     type Value = #ty;
                     fn into_value(self) -> Self::Value { #value }
                 }
@@ -242,11 +261,13 @@ fn builder_for(type_name: &Ident, shape: &Shape, renders: bool) -> TokenStream {
 
         #(#fallbacks)*
 
+        #[doc = #builder_doc]
         pub struct #builder_name<#(#slots),*> {
             #(#names: #slots),*
         }
 
         impl #builder_name<#(#unset),*> {
+            #[doc = "Starts with every variable unset. Anything left unset renders empty."]
             pub fn new() -> Self {
                 #builder_name { #(#names: #unset),* }
             }
@@ -264,7 +285,7 @@ fn builder_for(type_name: &Ident, shape: &Shape, renders: bool) -> TokenStream {
             /// Builds the template value, once every variable has been set.
             pub fn build<#(#params),*>(self) -> #type_name<#(#params),*> #build_bounds {
                 #type_name::new(
-                    #(::dry_handlebars::IsSet::into_value(self.#names)),*
+                    #(#runtime::IsSet::into_value(self.#names)),*
                 )
             }
 
@@ -305,10 +326,13 @@ pub struct Types {
 /// Builds the types for a template.
 ///
 /// Everything comes from the template: it is the only place that describes the data.
-pub fn generate(root_name: &str, context: &Context) -> Types {
-    let mut counter = Counter(0);
+pub fn generate(root_name: &str, context: &Context, runtime: &TokenStream) -> Types {
+    let mut state = State {
+        counter: 0,
+        runtime: runtime.clone(),
+    };
     let mut nested = Vec::new();
-    let mut shape = build(root_name, context, &mut counter, &mut nested);
+    let mut shape = build(root_name, context, &mut state, &mut nested);
 
     let declarations = shape.all_declarations();
     let initialisers = shape.all_initialisers();
@@ -320,13 +344,11 @@ pub fn generate(root_name: &str, context: &Context) -> Types {
             .push(quote! { #param: ::std::fmt::Display });
     }
     for param in &shape.truthy_params.clone() {
-        shape
-            .predicates
-            .push(quote! { #param: ::dry_handlebars::Truthy });
+        shape.predicates.push(quote! { #param: #runtime::Truthy });
     }
 
     let root_name = format_ident!("{}", root_name);
-    let builder = builder_for(&root_name, &shape, true);
+    let builder = builder_for(&root_name, &shape, true, &state.runtime);
 
     Types {
         nested,
@@ -343,16 +365,19 @@ pub fn generate(root_name: &str, context: &Context) -> Types {
 fn build(
     prefix: &str,
     context: &Context,
-    counter: &mut Counter,
+    state: &mut State,
     nested: &mut Vec<TokenStream>,
 ) -> Shape {
     let mut shape = Shape::new();
 
     for field in &context.fields {
         let name = field_ident(&field.name);
-        let ty = field_type(prefix, field, counter, nested, &mut shape);
+        let ty = field_type(prefix, field, state, nested, &mut shape);
 
-        shape.declarations.push(quote! { pub #name: #ty });
+        let doc = format!("The `{}` variable.", field.name);
+        shape
+            .declarations
+            .push(quote! { #[doc = #doc] pub #name: #ty });
         shape.names.push(name);
         shape.plain_names.push(field.name.replace('-', "_"));
         shape.types.push(ty);
@@ -365,15 +390,16 @@ fn build(
 fn field_type(
     prefix: &str,
     field: &Field,
-    counter: &mut Counter,
+    state: &mut State,
     nested: &mut Vec<TokenStream>,
     shape: &mut Shape,
 ) -> TokenStream {
+    let runtime = state.runtime.clone();
     match &field.kind {
         FieldKind::Leaf => {
-            let param = counter.next("T");
+            let param = state.next("T");
             shape.params.push(param.clone());
-            shape.param_empties.push(empty_type());
+            shape.param_empties.push(empty_type(&runtime));
             shape.field_params.push(param.clone());
             if field.used_as_value {
                 shape.display_params.push(param.clone());
@@ -383,13 +409,16 @@ fn field_type(
             if field.used_as_condition {
                 shape.truthy_params.push(param.clone());
             }
-            shape.empties.push((empty_type(), empty_type()));
+            shape
+                .empties
+                .push((empty_type(&runtime), empty_type(&runtime)));
             quote! { #param }
         }
 
         FieldKind::Object(inner) => {
             let type_name = format_ident!("{}_{}", prefix, field.name);
-            let inner_shape = declare(&type_name, inner, counter, nested);
+            let doc = format!("The `{}` record used by `{}`.", field.name, prefix);
+            let inner_shape = declare(&type_name, &doc, inner, state, nested);
 
             // An unset record is one with every field empty.
             shape.empties.push(inner_empty(&type_name, &inner_shape));
@@ -402,14 +431,15 @@ fn field_type(
         FieldKind::Sequence(item) => {
             let (item_type, empty_item) = if item.is_scalar() {
                 // `{{#each tags}}{{this}}{{/each}}` — the items are values, not records.
-                let param = counter.next("T");
+                let param = state.next("T");
                 shape.params.push(param.clone());
-                shape.param_empties.push(empty_type());
+                shape.param_empties.push(empty_type(&runtime));
                 shape.display_params.push(param.clone());
-                (quote! { #param }, empty_type())
+                (quote! { #param }, empty_type(&runtime))
             } else {
                 let type_name = format_ident!("{}_{}_item", prefix, field.name);
-                let inner_shape = declare(&type_name, item, counter, nested);
+                let doc = format!("One item of the `{}` list in `{}`.", field.name, prefix);
+                let inner_shape = declare(&type_name, &doc, item, state, nested);
                 let inner_empties = inner_shape.param_empties.clone();
                 let empty_item = quote! { #type_name<#(#inner_empties),*> };
                 // The item's type is named only in the bound below, never in a field, so its
@@ -418,7 +448,7 @@ fn field_type(
                 (quote! { #type_name<#(#params),*> }, empty_item)
             };
 
-            let param = counter.next("I");
+            let param = state.next("I");
             shape.params.push(param.clone());
             shape.param_empties.push(quote! { [#empty_item; 0] });
             shape.field_params.push(param.clone());
@@ -439,8 +469,8 @@ fn field_type(
 }
 
 /// The fallback for a value that is simply absent: nothing to display.
-fn empty_type() -> TokenStream {
-    quote! { ::dry_handlebars::Empty }
+fn empty_type(runtime: &TokenStream) -> TokenStream {
+    quote! { #runtime::Empty }
 }
 
 /// The fallback for an unset record: the generated type with every field empty.
@@ -456,11 +486,13 @@ fn inner_empty(type_name: &Ident, inner: &Shape) -> (TokenStream, TokenStream) {
 /// Declares a nested type and returns its shape.
 fn declare(
     type_name: &Ident,
+    doc: &str,
     context: &Context,
-    counter: &mut Counter,
+    state: &mut State,
     nested: &mut Vec<TokenStream>,
 ) -> Shape {
-    let shape = build(&type_name.to_string(), context, counter, nested);
+    let runtime = state.runtime.clone();
+    let shape = build(&type_name.to_string(), context, state, nested);
 
     let params = &shape.params;
     let names = &shape.names;
@@ -468,14 +500,21 @@ fn declare(
     let declarations = shape.all_declarations();
     let initialisers = shape.all_initialisers();
     let where_clause = where_clause(&shape.predicates);
-    let builder = builder_for(type_name, &shape, false);
+    let builder = builder_for(type_name, &shape, false, &runtime);
+
+    let new_doc = format!(
+        "Creates a `{}` from every variable it uses, in the order the template first mentions them.",
+        type_name
+    );
 
     nested.push(quote! {
+        #[doc = #doc]
         pub struct #type_name<#(#params),*> #where_clause {
             #(#declarations),*
         }
 
         impl<#(#params),*> #type_name<#(#params),*> #where_clause {
+            #[doc = #new_doc]
             pub fn new(#(#names: #types),*) -> Self {
                 Self { #(#initialisers),* }
             }
@@ -484,7 +523,7 @@ fn declare(
         // A record is present, so `{{#if person}}` renders. See todo.md item 3 for the one place
         // this parts company with handlebars.js: a record left unset is a record of empties rather
         // than an absent one, so it still counts as present.
-        impl<#(#params),*> ::dry_handlebars::Truthy for #type_name<#(#params),*> #where_clause {
+        impl<#(#params),*> #runtime::Truthy for #type_name<#(#params),*> #where_clause {
             fn is_truthy(&self) -> bool {
                 true
             }

@@ -107,7 +107,8 @@ impl IfOrUnless {
                 // Handlebars truthiness, not a bare `if`: absent, false, "", 0 and an empty list
                 // are all falsy, so `{{#if title}}{{title}}{{/if}}` works on the string it prints.
                 rust.code.push_str(prefix);
-                rust.code.push_str("::dry_handlebars::Truthy::is_truthy(&");
+                rust.code.push_str(compile.runtime);
+                rust.code.push_str("::Truthy::is_truthy(&");
                 compile.write_var(expression, rust, &var)?;
                 rust.code.push_str("){");
                 Ok(Self {})

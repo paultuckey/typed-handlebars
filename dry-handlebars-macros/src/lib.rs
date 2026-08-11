@@ -32,6 +32,25 @@ fn to_snake_case(s: &str) -> String {
     result
 }
 
+/// The path generated code should use to reach the runtime crate.
+///
+/// A consumer may rename the dependency (`hb = { package = "dry-handlebars" }`), in which case
+/// `::dry_handlebars` does not resolve for them. Asking Cargo what they called it keeps generated
+/// code working without them having to know it needed a particular name.
+fn runtime_crate() -> proc_macro2::TokenStream {
+    match proc_macro_crate::crate_name("dry-handlebars") {
+        Ok(proc_macro_crate::FoundCrate::Name(name)) => {
+            let ident = format_ident!("{}", name);
+            quote! { ::#ident }
+        }
+        // Inside `dry-handlebars` itself, which is how its own tests expand.
+        Ok(proc_macro_crate::FoundCrate::Itself) => quote! { crate },
+        // Not in the dependency list at all. Emitting the canonical name gives the developer a
+        // "use of undeclared crate" pointing at the right name to add.
+        Err(_) => quote! { ::dry_handlebars },
+    }
+}
+
 /// Shortens a path for display, relative to the crate being built.
 ///
 /// Absolute paths to a build directory are noise in an error message; `templates/results.hbs` is
@@ -84,11 +103,13 @@ fn generate_code_for_content(
 
     // The template states its own contract; read it before generating anything.
     let context = context::build(content).map_err(|e| describe(&e, assembly))?;
-    let types = codegen::generate(&struct_name_str, &context);
+    let runtime = runtime_crate();
+    let types = codegen::generate(&struct_name_str, &context, &runtime);
 
     let options = Options {
         root_var_name: Some("self"),
         write_var_name: "f",
+        runtime: runtime.to_string(),
     };
     let compiler = Compiler::new(options, block_map);
     let rust_code = compiler
@@ -124,7 +145,20 @@ fn generate_code_for_content(
     // the container rather than the item.
     let where_clause = codegen::where_clause(&predicates);
 
+    // Generated items carry documentation so that a consumer denying `missing_docs` needs no
+    // `#[allow]`, and so IDE autocomplete says what each setter is for.
+    let struct_doc = format!("The `{}` template.", struct_name_str);
+    let new_doc = format!(
+        "Creates a `{}` from every variable it uses, in the order the template first mentions them.",
+        struct_name_str
+    );
+    let fn_doc = format!(
+        "Renders the `{}` template. See `{}_builder` to name the variables instead.",
+        struct_name_str, struct_name_str
+    );
+
     let function_def = quote! {
+        #[doc = #fn_doc]
         pub fn #method_name<#(#params),*>(#(#names: #field_types),*) -> #struct_name<#(#params),*>
         #where_clause
         {
@@ -136,7 +170,7 @@ fn generate_code_for_content(
     // a rebuild of the code generated from it.
     let includes = &assembly.includes;
     let include_bytes_stmt = quote! {
-        #(const _: &[u8] = include_bytes!(#includes);)*
+        #(const _: &[u8] = ::core::include_bytes!(#includes);)*
     };
 
     let struct_def = quote! {
@@ -146,25 +180,30 @@ fn generate_code_for_content(
 
         #builder
 
+        #[doc = #struct_doc]
         pub struct #struct_name<#(#params),*> #where_clause {
             #(#declarations),*
         }
 
         impl<#(#params),*> #struct_name<#(#params),*> #where_clause {
+            #[doc = #new_doc]
             pub fn new(#(#names: #field_types),*) -> Self {
                 Self {
                     #(#initialisers),*
                 }
             }
 
-            pub fn render(&self) -> String {
-                use std::fmt::Write;
-                let mut f = String::new();
-                let mut render_inner = || -> std::fmt::Result {
+            /// Renders the template.
+            pub fn render(&self) -> ::std::string::String {
+                // Everything here is absolute: generated code must compile whatever the call site
+                // has in scope, including a shadowed `String` or `write!`.
+                use ::core::fmt::Write as _;
+                let mut f = ::std::string::String::new();
+                let mut render_inner = || -> ::core::fmt::Result {
                     #render_body
-                    Ok(())
+                    ::core::result::Result::Ok(())
                 };
-                render_inner().unwrap();
+                let _ = render_inner();
                 f
             }
         }

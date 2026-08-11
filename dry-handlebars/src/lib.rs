@@ -1,7 +1,3 @@
-// Generated code refers to this crate by name so that it needs no `use` statements at the call
-// site. That has to work inside this crate too, for the tests below.
-extern crate self as dry_handlebars;
-
 pub use dry_handlebars_macros::dry_handlebars_directory as directory;
 pub use dry_handlebars_macros::dry_handlebars_file as file;
 pub use dry_handlebars_macros::dry_handlebars_str as str;

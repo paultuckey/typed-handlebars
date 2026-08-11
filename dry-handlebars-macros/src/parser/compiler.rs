@@ -154,8 +154,8 @@ pub struct Scope {
 enum PendingWrite<'a> {
     /// Raw text to write
     Raw(&'a str),
-    /// Expression to evaluate and write, wrapped in the given prefix and postfix
-    Expression((Expression<'a>, &'static str, &'static str)),
+    /// Expression to evaluate and write
+    Expression(Expression<'a>, Escaping),
 }
 
 /// Rust code generation state
@@ -166,13 +166,17 @@ pub struct Rust {
     pub top_level_vars: HashSet<String>,
 }
 
-/// How `{{{ raw }}}` is written: straight out, exactly as given.
-static WRITE_RAW: (&str, &str) = (", ", "");
-/// How `{{ escaped }}` is written: through the runtime's HTML escaper.
+/// Whether a written value goes through the runtime's HTML escaper.
 ///
-/// This is the difference Handlebars promises and this crate used not to deliver — both forms
+/// This is the difference Handlebars promises and this crate used not to deliver — both forms once
 /// emitted identical code, so `{{ }}` silently passed markup through.
-static WRITE_ESCAPED: (&str, &str) = (", ::dry_handlebars::escape(&", ")");
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Escaping {
+    /// `{{{ raw }}}` — straight out, exactly as given.
+    None,
+    /// `{{ escaped }}` — through `escape`.
+    Html,
+}
 
 impl Rust {
     /// Creates a new Rust code generator
@@ -242,6 +246,8 @@ pub struct Compile<'a> {
     pub open_stack: Vec<Scope>,
     /// Map of block helpers
     pub block_map: &'a BlockMap,
+    /// How generated code reaches the runtime crate.
+    pub runtime: &'a str,
 }
 
 /// Appends a depth suffix to a variable name
@@ -264,13 +270,14 @@ impl<'a> Block for Root<'a> {
 
 impl<'a> Compile<'a> {
     /// Creates a new compiler
-    fn new(this: Option<&'static str>, block_map: &'a BlockMap) -> Self {
+    fn new(this: Option<&'static str>, block_map: &'a BlockMap, runtime: &'a str) -> Self {
         Self {
             open_stack: vec![Scope {
                 depth: 0,
                 opened: Box::new(Root { this }),
             }],
             block_map,
+            runtime,
         }
     }
 
@@ -528,6 +535,8 @@ pub struct Options {
     pub root_var_name: Option<&'static str>,
     /// Name of the write function
     pub write_var_name: &'static str,
+    /// How generated code reaches the runtime crate, which depends on what the consumer called it.
+    pub runtime: String,
 }
 
 /// Main compiler implementation
@@ -569,29 +578,37 @@ impl Compiler {
         if pending.is_empty() {
             return Ok(());
         }
-        rust.code.push_str("write!(");
+        rust.code.push_str("::core::write!(");
         rust.code.push_str(self.options.write_var_name);
         rust.code.push_str(", \"");
         for pending in pending.iter() {
             match pending {
                 PendingWrite::Raw(raw) => rust.code.push_str(self.escape(raw).as_ref()),
-                PendingWrite::Expression(_) => rust.code.push_str("{}"),
+                PendingWrite::Expression(..) => rust.code.push_str("{}"),
             }
         }
         rust.code.push('"');
         for pending in pending.iter() {
             match pending {
-                PendingWrite::Expression((expression, prefix, postfix)) => {
+                PendingWrite::Expression(expression, escaping) => {
+                    rust.code.push_str(", ");
+                    if let Escaping::Html = escaping {
+                        rust.code.push_str(compile.runtime);
+                        rust.code.push_str("::escape(&");
+                    }
                     compile.resolve(
                         &Expression {
                             expression_type: ExpressionType::Raw,
-                            prefix,
+                            prefix: "",
                             content: expression.content,
-                            postfix,
+                            postfix: "",
                             raw: expression.raw,
                         },
                         rust,
                     )?;
+                    if let Escaping::Html = escaping {
+                        rust.code.push(')');
+                    }
                 }
                 _ => (),
             }
@@ -603,7 +620,11 @@ impl Compiler {
 
     /// Compiles a template
     pub fn compile(&self, src: &str) -> Result<Rust> {
-        let mut compile = Compile::new(self.options.root_var_name, &self.block_map);
+        let mut compile = Compile::new(
+            self.options.root_var_name,
+            &self.block_map,
+            &self.options.runtime,
+        );
         let mut rust = Rust::new();
         let mut pending: Vec<PendingWrite> = Vec::new();
         let mut rest = src;
@@ -621,19 +642,13 @@ impl Compiler {
                 pending.push(PendingWrite::Raw(prefix));
             }
             match expression_type {
-                ExpressionType::Raw => {
-                    pending.push(PendingWrite::Expression((expr, WRITE_RAW.0, WRITE_RAW.1)))
-                }
+                ExpressionType::Raw => pending.push(PendingWrite::Expression(expr, Escaping::None)),
                 ExpressionType::HtmlEscaped => {
                     if *content == "else" {
                         self.commit_pending(&mut pending, &mut compile, &mut rust)?;
                         compile.handle_else(&expr, &mut rust)?
                     } else {
-                        pending.push(PendingWrite::Expression((
-                            expr,
-                            WRITE_ESCAPED.0,
-                            WRITE_ESCAPED.1,
-                        )))
+                        pending.push(PendingWrite::Expression(expr, Escaping::Html))
                     }
                 }
                 ExpressionType::Open => {
