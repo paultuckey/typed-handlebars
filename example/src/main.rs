@@ -39,4 +39,11 @@ fn main() {
     )
     .render();
     println!("{}", html4);
+
+    // The builder is optional. It names each variable, and anything left unset renders empty —
+    // here there are no todos, so the loop produces nothing.
+    let html5 = templates::todo_list_builder::new()
+        .list_name("Nothing to do")
+        .render();
+    println!("{}", html5);
 }

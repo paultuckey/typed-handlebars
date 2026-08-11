@@ -1,6 +1,62 @@
+// Generated code refers to this crate by name so that it needs no `use` statements at the call
+// site. That has to work inside this crate too, for the tests below.
+extern crate self as dry_handlebars;
+
 pub use dry_handlebars_macros::dry_handlebars_directory as directory;
 pub use dry_handlebars_macros::dry_handlebars_file as file;
 pub use dry_handlebars_macros::dry_handlebars_str as str;
+
+/// A variable that was never given a value.
+///
+/// Handlebars treats an undefined variable as empty, and so does this: `Empty` writes nothing when
+/// displayed, and stands in for a list with no items. Generated code uses it; you should never need
+/// to name it.
+pub struct Empty;
+
+impl core::fmt::Display for Empty {
+    fn fmt(&self, _: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        Ok(())
+    }
+}
+
+impl<T> AsRef<[T]> for Empty {
+    fn as_ref(&self) -> &[T] {
+        &[]
+    }
+}
+
+/// A value a builder has been given.
+///
+/// Generated code uses this; you should never need to name it.
+pub struct Set<T>(pub T);
+
+/// Supplies the value held in a builder slot.
+///
+/// Every generated builder starts with each slot held by a `<template>_unset_<variable>` marker.
+/// Markers for variables whose types the macro generated resolve to [`Empty`], which is why a
+/// builder need not set everything. A variable whose type *you* declared in Rust has no empty to
+/// fall back on, so its marker implements nothing and leaving it out is a compile error.
+#[diagnostic::on_unimplemented(
+    message = "template variable `{Self}` must be set",
+    label = "this variable was never set",
+    note = "variables the macro types itself fall back to empty; ones declared in Rust with \
+            (\"name\", Type) have no empty to fall back on, so they have to be set"
+)]
+pub trait IsSet {
+    /// The type of the value in this slot.
+    type Value;
+
+    /// Unwraps the value.
+    fn into_value(self) -> Self::Value;
+}
+
+impl<T> IsSet for Set<T> {
+    type Value = T;
+
+    fn into_value(self) -> T {
+        self.0
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -273,6 +329,126 @@ mod tests {
             //language=html
             "<li>King</li>"
         );
+    }
+
+    /// Handlebars renders an undefined variable as nothing, and the builder does the same: you set
+    /// what you have.
+    #[test]
+    fn the_builder_leaves_unset_variables_empty() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"<h1>{{title}}</h1><p>{{body}}</p>"#
+            );
+        }
+        assert_eq!(
+            template::test_builder::new().render(),
+            "<h1></h1><p></p>",
+            "nothing set at all"
+        );
+        assert_eq!(
+            template::test_builder::new().title("Dub").render(),
+            "<h1>Dub</h1><p></p>",
+            "only one of the two set"
+        );
+    }
+
+    /// An unset list has no items, and an unset condition is false — again matching Handlebars.
+    #[test]
+    fn unset_lists_and_conditions_are_empty() {
+        mod list {
+            crate::str!("test", r#"[{{#each rows}}<li>{{name}}</li>{{/each}}]"#);
+        }
+        assert_eq!(list::test_builder::new().render(), "[]");
+
+        mod conditional {
+            crate::str!("test", r#"[{{#if shown}}yes{{/if}}]"#);
+        }
+        assert_eq!(conditional::test_builder::new().render(), "[]");
+        assert_eq!(
+            conditional::test_builder::new().shown(true).render(),
+            "[yes]"
+        );
+    }
+
+    /// A record left out renders as a record whose own fields are all empty.
+    #[test]
+    fn an_unset_record_is_empty_all_the_way_down() {
+        mod template {
+            crate::str!("test", r#"[{{person.first}}|{{person.last}}]"#);
+        }
+        assert_eq!(template::test_builder::new().render(), "[|]");
+        assert_eq!(
+            template::test_builder::new()
+                .person(template::test_person_builder::new().first("King").build())
+                .render(),
+            "[King|]",
+            "a record can itself be partly set"
+        );
+    }
+
+    /// The wiring API: named setters, so nothing depends on argument order and every name comes
+    /// from autocomplete rather than being retyped from the template.
+    #[test]
+    fn the_builder_is_order_independent() {
+        mod template {
+            crate::str!("test", r#"<p>{{firstname}} {{lastname}}</p>"#);
+        }
+        assert_eq!(
+            template::test_builder::new()
+                .firstname("King")
+                .lastname("Tubby")
+                .render(),
+            "<p>King Tubby</p>"
+        );
+        // …and the other way round.
+        assert_eq!(
+            template::test_builder::new()
+                .lastname("Tubby")
+                .firstname("King")
+                .render(),
+            "<p>King Tubby</p>"
+        );
+    }
+
+    /// Generated item types get builders too, so a nested shape is wired up the same way.
+    #[test]
+    fn the_builder_wires_up_lists() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"<h1>{{title}}</h1>{{#each rows}}<li>{{name}} {{email}}</li>{{/each}}"#
+            );
+        }
+        let rows = vec![
+            template::test_rows_item_builder::new()
+                .name("King")
+                .email("king@example.com")
+                .build(),
+            template::test_rows_item_builder::new()
+                .email("tubby@example.com")
+                .name("Tubby")
+                .build(),
+        ];
+        let expected = "<h1>Dub</h1><li>King king@example.com</li><li>Tubby tubby@example.com</li>";
+
+        assert_eq!(
+            template::test_builder::new()
+                .title("Dub")
+                .rows(&rows)
+                .render(),
+            expected
+        );
+
+        // `build` hands back the template value, which can be rendered more than once.
+        let page = template::test_builder::new()
+            .rows(rows)
+            .title("Dub")
+            .build();
+        assert_eq!(page.render(), expected);
+        assert_eq!(page.render(), expected);
     }
 
     /// Rendering borrows, so a caller can pass a list they still own — no clone, no giving up the

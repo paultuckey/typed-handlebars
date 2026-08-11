@@ -78,6 +78,7 @@ fn generate_code_for_content(
 
     let codegen::Types {
         nested,
+        builder,
         params,
         predicates,
         declarations,
@@ -112,6 +113,8 @@ fn generate_code_for_content(
         #include_bytes_stmt
 
         #(#nested)*
+
+        #builder
 
         pub struct #struct_name<#(#params),*> #where_clause {
             #(#declarations),*

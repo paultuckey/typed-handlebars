@@ -18,9 +18,15 @@
 //! and parameters from nested types are threaded up into their parent, so the root type carries
 //! the whole tree's parameters and the root `impl` carries the whole tree's bounds.
 //!
-//! Sequences are bound by `for<'a> &'a I: IntoIterator<Item = &'a Item>`, which is what lets
-//! `render(&self)` walk a list without consuming it — and lets a template iterate the same list
-//! twice.
+//! Sequences are bound by `I: AsRef<[Item]>`, which is what lets `render(&self)` walk a list
+//! without consuming it — so the caller can pass a list they still own, and a template can iterate
+//! the same list twice. `as_ref()` compiles to nothing.
+//!
+//! # The builder
+//!
+//! Each generated type also gets a builder, which is the API a Rust developer actually wires
+//! against: one named setter per template variable, filled in by autocomplete rather than by
+//! counting positional arguments. See [`builder_for`].
 
 use std::collections::HashMap;
 
@@ -34,6 +40,11 @@ use crate::parser::context::{Context, Field, FieldKind};
 struct Shape {
     /// Every generic parameter in this subtree, in template order.
     params: Vec<Ident>,
+    /// What each entry of `params` becomes when its field is left unset.
+    ///
+    /// Needed because `Empty` is a list of *any* item type, so an unset list has to name a concrete
+    /// empty — `[item; 0]` — or the item type cannot be inferred.
+    param_empties: Vec<TokenStream>,
     /// The subset of `params` that appears in this type's own fields.
     ///
     /// A list's item type is named only in that list's `AsRef` bound, so its parameters need a
@@ -47,20 +58,30 @@ struct Shape {
     declarations: Vec<TokenStream>,
     /// Field names, for constructors and call sites.
     names: Vec<Ident>,
+    /// The same names as the template spells them, for building marker type names.
+    plain_names: Vec<String>,
     /// Field types, for constructor arguments.
     types: Vec<TokenStream>,
+    /// What each field falls back to when a builder leaves it out — its type and its value.
+    ///
+    /// `None` for a field whose type the caller declared in Rust: we can invent an empty for a type
+    /// we generated, but not for one we were handed.
+    empties: Vec<Option<(TokenStream, TokenStream)>>,
 }
 
 impl Shape {
     fn new() -> Self {
         Self {
             params: Vec::new(),
+            param_empties: Vec::new(),
             field_params: Vec::new(),
             display_params: Vec::new(),
             predicates: Vec::new(),
             declarations: Vec::new(),
             names: Vec::new(),
+            plain_names: Vec::new(),
             types: Vec::new(),
+            empties: Vec::new(),
         }
     }
 
@@ -101,7 +122,7 @@ impl Shape {
 /// Name of the generated marker field.
 ///
 /// Deliberately unlikely to collide with anything an `.hbs` author would write, and private, so it
-/// stays invisible: callers go through `new` (and, once todo.md item 2 lands, the builder).
+/// stays invisible: callers go through the builder, or `new`.
 struct Marker;
 
 impl quote::ToTokens for Marker {
@@ -123,6 +144,139 @@ impl Counter {
     }
 }
 
+/// Generates the builder for one type: the wiring API.
+///
+/// Each variable the template uses becomes a named setter, so a developer fills them in by
+/// autocomplete rather than by counting positional arguments — and a renamed variable becomes a
+/// compile error instead of a silently mis-ordered argument.
+///
+/// Every slot starts as a `<type>_unset_<field>` marker, and setting a variable swaps that slot for
+/// `dry_handlebars::Set`. A marker resolves to whatever "absent" means for its field — nothing to
+/// display, a list with no items, a false condition — so a builder need not set everything, which
+/// is how Handlebars treats an undefined variable.
+///
+/// The exception is a field whose type the caller declared in Rust: there is no empty we can invent
+/// for someone else's type, so its marker implements nothing and leaving it out is a compile error
+/// naming the variable.
+fn builder_for(type_name: &Ident, shape: &Shape, renders: bool) -> TokenStream {
+    if shape.names.is_empty() {
+        // A template with no variables has nothing to wire up.
+        return quote! {};
+    }
+    let builder_name = format_ident!("{}_builder", type_name);
+    let names = &shape.names;
+    let types = &shape.types;
+    let params = &shape.params;
+    let predicates = &shape.predicates;
+
+    let slots: Vec<Ident> = (0..names.len()).map(|i| format_ident!("S{}", i)).collect();
+    let unset: Vec<Ident> = shape
+        .plain_names
+        .iter()
+        .map(|name| format_ident!("{}_unset_{}", type_name, name))
+        .collect();
+
+    // One setter per variable: it replaces its own slot and passes the others through.
+    let setters = names.iter().enumerate().map(|(index, name)| {
+        let returned: Vec<TokenStream> = slots
+            .iter()
+            .enumerate()
+            .map(|(slot, ident)| {
+                if slot == index {
+                    quote! { ::dry_handlebars::Set<__DhValue> }
+                } else {
+                    quote! { #ident }
+                }
+            })
+            .collect();
+        let moved = names.iter().enumerate().map(|(field, ident)| {
+            if field == index {
+                quote! { #ident: ::dry_handlebars::Set(value) }
+            } else {
+                quote! { #ident: self.#ident }
+            }
+        });
+        quote! {
+            pub fn #name<__DhValue>(self, value: __DhValue) -> #builder_name<#(#returned),*> {
+                #builder_name { #(#moved),* }
+            }
+        }
+    });
+
+    // `build` re-derives the type's own parameters from the slots. Pinning `Value` is what lets
+    // them be method-level generics: without it they would be unconstrained.
+    let build_bounds = quote! {
+        where
+            #(#slots: ::dry_handlebars::IsSet<Value = #types>,)*
+            #(#predicates,)*
+    };
+
+    let render = if renders {
+        quote! {
+            /// Renders straight from the builder.
+            pub fn render<#(#params),*>(self) -> ::std::string::String #build_bounds {
+                let built: #type_name<#(#params),*> = self.build();
+                built.render()
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    // What each marker resolves to. A field the caller typed in Rust gets no impl, so it has to be
+    // set; everything else falls back to empty.
+    let fallbacks = unset
+        .iter()
+        .zip(&shape.empties)
+        .map(|(marker, empty)| match empty {
+            Some((ty, value)) => quote! {
+                impl ::dry_handlebars::IsSet for #marker {
+                    type Value = #ty;
+                    fn into_value(self) -> Self::Value { #value }
+                }
+            },
+            None => quote! {},
+        });
+
+    quote! {
+        #(
+            #[doc(hidden)]
+            pub struct #unset;
+        )*
+
+        #(#fallbacks)*
+
+        pub struct #builder_name<#(#slots),*> {
+            #(#names: #slots),*
+        }
+
+        impl #builder_name<#(#unset),*> {
+            pub fn new() -> Self {
+                #builder_name { #(#names: #unset),* }
+            }
+        }
+
+        impl ::std::default::Default for #builder_name<#(#unset),*> {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        impl<#(#slots),*> #builder_name<#(#slots),*> {
+            #(#setters)*
+
+            /// Builds the template value, once every variable has been set.
+            pub fn build<#(#params),*>(self) -> #type_name<#(#params),*> #build_bounds {
+                #type_name::new(
+                    #(::dry_handlebars::IsSet::into_value(self.#names)),*
+                )
+            }
+
+            #render
+        }
+    }
+}
+
 /// Renders a `where` clause, or nothing when there are no predicates.
 pub fn where_clause(predicates: &[TokenStream]) -> TokenStream {
     if predicates.is_empty() {
@@ -136,6 +290,8 @@ pub fn where_clause(predicates: &[TokenStream]) -> TokenStream {
 pub struct Types {
     /// Types for nested scopes, declared alongside the template's own type.
     pub nested: Vec<TokenStream>,
+    /// The template's builder — the wiring API.
+    pub builder: TokenStream,
     /// Generic parameters of the template's own type.
     pub params: Vec<Ident>,
     /// Bounds for the `impl` block that carries `render`.
@@ -162,20 +318,26 @@ pub fn generate(
 ) -> Types {
     let mut counter = Counter(0);
     let mut nested = Vec::new();
-    let shape = build(root_name, context, mappings, &mut counter, &mut nested);
+    let mut shape = build(root_name, context, mappings, &mut counter, &mut nested);
 
     let declarations = shape.all_declarations();
     let initialisers = shape.all_initialisers();
 
-    let mut predicates = shape.predicates;
-    for param in &shape.display_params {
-        predicates.push(quote! { #param: ::std::fmt::Display });
+    // `Display` bounds belong with the rest, so the builder's `build` carries them too.
+    for param in &shape.display_params.clone() {
+        shape
+            .predicates
+            .push(quote! { #param: ::std::fmt::Display });
     }
+
+    let root_name = format_ident!("{}", root_name);
+    let builder = builder_for(&root_name, &shape, true);
 
     Types {
         nested,
+        builder,
         params: shape.params,
-        predicates,
+        predicates: shape.predicates,
         declarations,
         initialisers,
         names: shape.names,
@@ -197,6 +359,7 @@ fn build(
 
         let ty = if let Some(mapped) = mappings.get(&field.name) {
             // The caller supplied a type; the template's inferred shape is only a cross-check.
+            shape.empties.push(None);
             quote! { #mapped }
         } else {
             field_type(prefix, field, counter, nested, &mut shape)
@@ -204,6 +367,7 @@ fn build(
 
         shape.declarations.push(quote! { pub #name: #ty });
         shape.names.push(name);
+        shape.plain_names.push(field.name.replace('-', "_"));
         shape.types.push(ty);
     }
 
@@ -220,50 +384,93 @@ fn field_type(
 ) -> TokenStream {
     match &field.kind {
         // A variable that is only ever tested still compiles to `if x { … }`, so it has to be a
-        // `bool` for now. Handlebars truthiness is todo.md item 3.
-        FieldKind::Leaf if field.used_as_condition => quote! { bool },
+        // `bool` for now. Handlebars truthiness is todo.md item 3. Unset is falsy, as it is there.
+        FieldKind::Leaf if field.used_as_condition => {
+            shape
+                .empties
+                .push(Some((quote! { bool }, quote! { false })));
+            quote! { bool }
+        }
 
         FieldKind::Leaf => {
             let param = counter.next("T");
             shape.params.push(param.clone());
+            shape.param_empties.push(empty_type());
             shape.field_params.push(param.clone());
             shape.display_params.push(param.clone());
+            shape.empties.push(Some((empty_type(), empty_type())));
             quote! { #param }
         }
 
         FieldKind::Object(inner) => {
             let type_name = format_ident!("{}_{}", prefix, field.name);
             let inner_shape = declare(&type_name, inner, counter, nested);
+
+            // An unset record is one with every field empty.
+            shape.empties.push(inner_empty(&type_name, &inner_shape));
+
             // The record's type is named in this field, so its parameters are used here too.
             let params = absorb(shape, inner_shape, true);
             quote! { #type_name<#(#params),*> }
         }
 
         FieldKind::Sequence(item) => {
-            let item_type = if item.is_scalar() {
+            let (item_type, empty_item) = if item.is_scalar() {
                 // `{{#each tags}}{{this}}{{/each}}` — the items are values, not records.
                 let param = counter.next("T");
                 shape.params.push(param.clone());
+                shape.param_empties.push(empty_type());
                 shape.display_params.push(param.clone());
-                quote! { #param }
+                (quote! { #param }, empty_type())
             } else {
                 let type_name = format_ident!("{}_{}_item", prefix, field.name);
                 let inner_shape = declare(&type_name, item, counter, nested);
+                let inner_empties = inner_shape.param_empties.clone();
+                let empty_item = quote! { #type_name<#(#inner_empties),*> };
                 // The item's type is named only in the bound below, never in a field, so its
                 // parameters need the marker.
                 let params = absorb(shape, inner_shape, false);
-                quote! { #type_name<#(#params),*> }
+                (quote! { #type_name<#(#params),*> }, empty_item)
             };
 
             let param = counter.next("I");
             shape.params.push(param.clone());
+            shape.param_empties.push(quote! { [#empty_item; 0] });
             shape.field_params.push(param.clone());
             shape
                 .predicates
                 .push(quote! { #param: ::std::convert::AsRef<[#item_type]> });
+            // An unset list has no items. It has to name the item type: `Empty` is a list of
+            // anything, which would leave the item type ambiguous.
+            shape
+                .empties
+                .push(Some((quote! { [#empty_item; 0] }, quote! { [] })));
             quote! { #param }
         }
     }
+}
+
+/// The fallback for a value that is simply absent: nothing to display.
+fn empty_type() -> TokenStream {
+    quote! { ::dry_handlebars::Empty }
+}
+
+/// The fallback for an unset record: the generated type with every field empty.
+///
+/// `None` if any of its fields has no fallback, which happens when the caller declared that field's
+/// type in Rust.
+fn inner_empty(type_name: &Ident, inner: &Shape) -> Option<(TokenStream, TokenStream)> {
+    let values: Option<Vec<&TokenStream>> = inner
+        .empties
+        .iter()
+        .map(|entry| entry.as_ref().map(|(_, value)| value))
+        .collect();
+    let values = values?;
+    let empties = &inner.param_empties;
+    Some((
+        quote! { #type_name<#(#empties),*> },
+        quote! { #type_name::new(#(#values),*) },
+    ))
 }
 
 /// Declares a nested type and returns its shape.
@@ -289,6 +496,7 @@ fn declare(
     let declarations = shape.all_declarations();
     let initialisers = shape.all_initialisers();
     let where_clause = where_clause(&shape.predicates);
+    let builder = builder_for(type_name, &shape, false);
 
     nested.push(quote! {
         pub struct #type_name<#(#params),*> #where_clause {
@@ -300,6 +508,8 @@ fn declare(
                 Self { #(#initialisers),* }
             }
         }
+
+        #builder
     });
 
     shape
@@ -311,6 +521,7 @@ fn declare(
 /// appears in a bound, the child's parameters need the parent's `PhantomData`.
 fn absorb(parent: &mut Shape, child: Shape, in_field: bool) -> Vec<Ident> {
     parent.params.extend(child.params.iter().cloned());
+    parent.param_empties.extend(child.param_empties);
     if in_field {
         parent.field_params.extend(child.params.iter().cloned());
     }

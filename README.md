@@ -53,12 +53,37 @@ fn get_html() -> String {
 }
 ```
 
+### Optionally, a builder
+
+Every template also gets a builder. It is entirely optional — the function above is the normal way to
+call a template — but it names each variable, so nothing depends on argument order and your IDE
+offers the names rather than you retyping them:
+
+```rust
+templates::button_builder::new()
+    .btn_id(42)
+    .btn_name("Save")
+    .render()
+```
+
+You only set what you have. Anything you leave out renders as empty, a list with no items, or a false
+condition, exactly as an undefined variable does in Handlebars:
+
+```rust
+templates::button_builder::new().btn_id(42).render()   // btn_name renders as nothing
+```
+
+The one exception is a variable whose type you declared in Rust yourself (see below) — there is no
+empty we can invent for someone else's type, so that one has to be set.
+
 ## Features
 
 Still in alpha stage, only a subset of handlebars functionality is supported. Specifically:
 
 - Uses `Display` trait for variables
 - Get a struct and a template function for a `str`
+- An optional builder per template, with one named setter per variable; anything left unset renders
+  empty, the way Handlebars treats an undefined variable
 - Macro for a directory of templates, single file or a string
 - Simple top level keys (e.g. `{{ todo_id }}`) -> Fields must implement the `Display` trait
 - Item properties (e.g. `{{ person.name }}`) -> a `person` type is generated, fields must implement the `Display` trait
@@ -71,16 +96,3 @@ You can override a generated type with your own by naming it in the macro call �
 useful for wiring in domain types you already have. It is never required, and it stays in the Rust code rather than the
 template.
 
-### Development
-
-```shell
-cargo fmt 
-```
-
-```shell
-cargo clippy 
-```
-
-```shell
-cargo test 
-```

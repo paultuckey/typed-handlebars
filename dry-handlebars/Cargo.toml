@@ -9,3 +9,6 @@ repository = "https://github.com/paultuckey/dry-handlebars"
 
 [dependencies]
 dry-handlebars-macros = { path = "../dry-handlebars-macros", version = "0.1.0" }
+
+[dev-dependencies]
+trybuild = "1.0"
