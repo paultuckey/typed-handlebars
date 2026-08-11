@@ -63,7 +63,7 @@
 //! assert_eq!(token.token_type, TokenType::Literal);
 //! ```
 
-use crate::parser::error::{ParseError, Result, rcap};
+use crate::parser::error::{ParseError, Result};
 
 /// Types of tokens that can be parsed from an expression
 #[derive(Clone)]
@@ -102,9 +102,7 @@ fn find_closing(src: &str) -> Result<usize> {
             return Ok(i + 1);
         }
     }
-    Err(ParseError {
-        message: format!("unmatched brackets near {}", rcap(src)),
-    })
+    Err(ParseError::general("unmatched brackets").or_at(src))
 }
 
 fn find_end_of_string(src: &str) -> Result<usize> {
@@ -121,9 +119,7 @@ fn find_end_of_string(src: &str) -> Result<usize> {
             _ => (),
         }
     }
-    Err(ParseError {
-        message: format!("unterminated string near {}", rcap(src)),
-    })
+    Err(ParseError::general("unterminated string").or_at(src))
 }
 
 /// Finds the end of a token by looking for whitespace or special characters

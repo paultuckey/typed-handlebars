@@ -1,0 +1,17 @@
+error: line 1, column 4: partials are not supported yet, so `{{> other}}` cannot be rendered
+ --> tests/ui/unsupported_syntax.rs:4:34
+  |
+4 |     dry_handlebars::str!("page", "A{{> other}}B");
+  |                                  ^^^^^^^^^^^^^^^
+
+error: line 1, column 13: `{{else if}}` is not supported yet — nest an `{{#if}}` inside the `{{else}}` instead
+ --> tests/ui/unsupported_syntax.rs:8:34
+  |
+8 |     dry_handlebars::str!("page", "{{#if a}}1{{else if b}}2{{else}}3{{/if}}");
+  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: line 1, column 4: unsupported block helper `wat`
+  --> tests/ui/unsupported_syntax.rs:12:34
+   |
+12 |     dry_handlebars::str!("page", "{{#wat x}}y{{/wat}}");
+   |                                  ^^^^^^^^^^^^^^^^^^^^^

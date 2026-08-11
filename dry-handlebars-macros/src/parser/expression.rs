@@ -45,7 +45,7 @@
 //! assert_eq!(expr.content, "name");
 //! ```
 
-use std::{cmp::min, fmt::Display};
+use std::fmt::Display;
 
 use crate::parser::error::{ParseError, Result};
 
@@ -97,9 +97,10 @@ impl<'a> Expression<'a> {
         match start.find(end) {
             Some(mut pos) => {
                 if pos == 0 {
-                    return Err(ParseError {
-                        message: format!("empty block near {}", preffix),
-                    });
+                    return Err(
+                        ParseError::general("empty expression: `{{}}` has no name in it")
+                            .or_at(start),
+                    );
                 }
                 let mut postfix = &start[pos + end.len()..];
                 if &start[pos - 1..pos] == "~" {
@@ -123,7 +124,15 @@ impl<'a> Expression<'a> {
         if let Some(pos) = start.find("--")
             && pos == 0
         {
-            return Self::close(ExpressionType::Comment, preffix, &start[2..], "--}}");
+            return Self::close(ExpressionType::Comment, preffix, &start[2..], "--}}").map_err(
+                |_| {
+                    // Saying "unclosed block" here sends people looking for a missing `{{/…}}`.
+                    ParseError::general(
+                        "unclosed comment — a `{{!-- … }}` comment has to end with `--}}`",
+                    )
+                    .or_at(start)
+                },
+            );
         }
         Self::close(ExpressionType::Comment, preffix, start, "}}")
     }
@@ -216,17 +225,6 @@ impl<'a> Expression<'a> {
     /// Parses the next expression after this one
     pub fn next(&self) -> Result<Option<Self>> {
         Self::from(self.postfix)
-    }
-
-    /// Returns a string containing the expression and its surrounding context
-    pub fn around(&self) -> &str {
-        let len = self.raw.len();
-        if len == 0 {
-            return self.raw;
-        }
-        let start = self.prefix.len();
-        let end = start + self.content.len() + 16;
-        &self.raw[min(len - 1, if start > 16 { start - 16 } else { 0 })..min(self.raw.len(), end)]
     }
 }
 

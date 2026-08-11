@@ -225,10 +225,14 @@ struct Frame {
     context: Context,
 }
 
-/// Whether an open block introduced a scope, so `{{/…}}` knows what to unwind.
-enum Opened {
-    Scope,
-    Transparent,
+/// An open block, remembered so `{{/…}}` knows what to unwind and errors can point back at it.
+struct Opened<'a> {
+    /// The helper name — `each`, `if`, … — as the template spelled it.
+    name: &'a str,
+    /// The opening expression, so an error can report where the block began.
+    raw: &'a str,
+    /// Whether this block introduced a scope, or is transparent like `{{#if}}`.
+    scope: bool,
 }
 
 /// Reads a template and returns the shape of the data it needs.
@@ -240,13 +244,15 @@ pub fn build(src: &str) -> Result<Context> {
         sequence: false,
         context: Context::default(),
     }];
-    let mut opened: Vec<Opened> = Vec::new();
+    let mut opened: Vec<Opened<'_>> = Vec::new();
 
     let mut expression = Expression::from(src)?;
     while let Some(expr) = expression {
         match expr.expression_type {
             ExpressionType::Raw | ExpressionType::HtmlEscaped => {
-                if expr.content.trim() != "else" {
+                let content = expr.content.trim();
+                if content != "else" {
+                    reject_unsupported(content, &expr)?;
                     scan_expression(&mut frames, expr.content, Mark::Value)?;
                 }
             }
@@ -257,12 +263,38 @@ pub fn build(src: &str) -> Result<Context> {
         expression = expr.next()?;
     }
 
-    if !opened.is_empty() {
-        return Err(ParseError::general(
-            "unclosed block — every {{#…}} needs a matching {{/…}}",
-        ));
+    if let Some(block) = opened.last() {
+        return Err(ParseError::general(&format!(
+            "`{{{{#{}}}}}` is never closed — it needs a matching `{{{{/{}}}}}`",
+            block.name, block.name
+        ))
+        .or_at(block.raw));
     }
     Ok(frames.pop().expect("root frame is never popped").context)
+}
+
+/// Catches Handlebars this crate does not support yet, before it reaches code generation.
+///
+/// Without this these become Rust syntax errors in generated code — `expected expression, found >`
+/// for a partial — which says nothing to the person who wrote the template.
+fn reject_unsupported(content: &str, expr: &Expression<'_>) -> Result<()> {
+    if let Some(name) = content.strip_prefix('>') {
+        let name = name.trim().split_whitespace().next().unwrap_or("");
+        return Err(ParseError::new(
+            &format!(
+                "partials are not supported yet, so `{{{{> {}}}}}` cannot be rendered",
+                name
+            ),
+            expr,
+        ));
+    }
+    if content == "else if" || content.starts_with("else if ") {
+        return Err(ParseError::new(
+            "`{{else if}}` is not supported yet — nest an `{{#if}}` inside the `{{else}}` instead",
+            expr,
+        ));
+    }
+    Ok(())
 }
 
 /// Records every variable an expression reads.
@@ -375,10 +407,10 @@ fn resolve(frames: &[Frame], var: &str) -> Result<Target> {
     })
 }
 
-fn open_block(
+fn open_block<'a>(
     frames: &mut Vec<Frame>,
-    opened: &mut Vec<Opened>,
-    expr: &Expression<'_>,
+    opened: &mut Vec<Opened<'a>>,
+    expr: &Expression<'a>,
 ) -> Result<()> {
     let head = Token::first(expr.content)?
         .ok_or_else(|| ParseError::new("expected a block helper name", expr))?;
@@ -390,7 +422,11 @@ fn open_block(
             if let Some(subject) = head.next()? {
                 scan_token(frames, &subject, Mark::Condition)?;
             }
-            opened.push(Opened::Transparent);
+            opened.push(Opened {
+                name: head.value,
+                raw: expr.raw,
+                scope: false,
+            });
             return Ok(());
         }
         other => {
@@ -432,32 +468,55 @@ fn open_block(
         sequence,
         context: Context::default(),
     });
-    opened.push(Opened::Scope);
+    opened.push(Opened {
+        name: head.value,
+        raw: expr.raw,
+        scope: true,
+    });
     Ok(())
 }
 
 fn close_block(
     frames: &mut Vec<Frame>,
-    opened: &mut Vec<Opened>,
+    opened: &mut Vec<Opened<'_>>,
     expr: &Expression<'_>,
 ) -> Result<()> {
-    match opened.pop() {
-        Some(Opened::Transparent) => Ok(()),
-        Some(Opened::Scope) => {
-            let frame = frames.pop().expect("a Scope entry always has a frame");
-            let path: Vec<&str> = frame.subject.iter().map(String::as_str).collect();
-            let kind = if frame.sequence {
-                FieldKind::Sequence(frame.context)
-            } else {
-                FieldKind::Object(frame.context)
-            };
-            frames[frame.parent].context.attach(&path, kind)
+    let block = match opened.pop() {
+        Some(block) => block,
+        None => {
+            return Err(ParseError::new(
+                &format!(
+                    "`{{{{/{}}}}}` closes a block that was never opened",
+                    expr.content.trim()
+                ),
+                expr,
+            ));
         }
-        None => Err(ParseError::new(
-            "closing tag without a matching {{#…}}",
+    };
+
+    let closing = expr.content.trim();
+    if closing != block.name {
+        return Err(ParseError::new(
+            &format!(
+                "`{{{{/{}}}}}` does not match the `{{{{#{}}}}}` it closes",
+                closing, block.name
+            ),
             expr,
-        )),
+        ));
     }
+
+    if !block.scope {
+        return Ok(());
+    }
+
+    let frame = frames.pop().expect("a scope entry always has a frame");
+    let path: Vec<&str> = frame.subject.iter().map(String::as_str).collect();
+    let kind = if frame.sequence {
+        FieldKind::Sequence(frame.context)
+    } else {
+        FieldKind::Object(frame.context)
+    };
+    frames[frame.parent].context.attach(&path, kind)
 }
 
 /// Reads the `as |name|` clause of a block, if it has one.

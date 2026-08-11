@@ -30,29 +30,25 @@ use std::{error::Error, fmt::Display};
 
 /// Error type for template parsing failures
 ///
-/// This error type provides detailed information about parsing errors,
-/// including the location and context of the error.
+/// Carries where in the template the problem is, so the developer — who may not read Rust — gets a
+/// line and column in their `.hbs` file rather than a proc-macro panic.
 #[derive(Debug)]
 pub struct ParseError {
     pub(crate) message: String,
-}
-
-/// Returns the last 32 characters of a string for error context
-pub(crate) fn rcap(src: &str) -> &str {
-    static CAP_AT: usize = 32;
-
-    if src.len() > CAP_AT {
-        &src[src.len() - CAP_AT..]
-    } else {
-        src
-    }
+    /// Address of the offending text.
+    ///
+    /// Every slice the parser handles borrows from the one template string, so recording the
+    /// address here lets [`ParseError::offset_in`] recover a byte offset later, at the point where
+    /// the whole template is in scope. Only ever compared and subtracted, never dereferenced.
+    at: Option<usize>,
 }
 
 impl ParseError {
-    /// Creates a new parse error with context from an expression
+    /// Creates a new parse error pointing at an expression
     pub(crate) fn new(message: &str, expression: &Expression<'_>) -> Self {
         Self {
-            message: format!("{} near \"{}\"", message, expression.around()),
+            message: message.to_string(),
+            at: Some(expression.raw.as_ptr() as usize),
         }
     }
 
@@ -63,14 +59,31 @@ impl ParseError {
     pub(crate) fn general(message: &str) -> Self {
         Self {
             message: message.to_string(),
+            at: None,
         }
     }
 
     /// Creates an error for unclosed blocks
     pub(crate) fn unclosed(preffix: &str) -> Self {
         Self {
-            message: format!("unclosed block near {}", rcap(preffix)),
+            message: "unclosed block — every {{#…}} needs a matching {{/…}}".to_string(),
+            // The block opened somewhere after this point; the end of the text before it is the
+            // closest position we have.
+            at: Some(preffix.as_ptr() as usize + preffix.len()),
         }
+    }
+
+    /// Attaches a position, if the error does not already have one.
+    pub(crate) fn or_at(mut self, text: &str) -> Self {
+        self.at.get_or_insert(text.as_ptr() as usize);
+        self
+    }
+
+    /// The byte offset of this error within `src`, when it came from `src`.
+    pub(crate) fn offset_in(&self, src: &str) -> Option<usize> {
+        let start = src.as_ptr() as usize;
+        let at = self.at?;
+        (at >= start && at <= start + src.len()).then(|| at - start)
     }
 }
 
@@ -84,6 +97,7 @@ impl From<std::io::Error> for ParseError {
     fn from(err: std::io::Error) -> Self {
         Self {
             message: err.to_string(),
+            at: None,
         }
     }
 }

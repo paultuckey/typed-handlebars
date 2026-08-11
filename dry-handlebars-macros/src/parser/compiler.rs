@@ -282,9 +282,10 @@ impl<'a> Compile<'a> {
         while local.starts_with("../") {
             match scope.depth {
                 0 => {
-                    return Err(ParseError {
-                        message: format!("unable to resolve scope for {}", var),
-                    });
+                    return Err(ParseError::general(&format!(
+                        "`{}` reaches above the top of the template",
+                        var
+                    )));
                 }
                 _ => {
                     local = &local[3..];

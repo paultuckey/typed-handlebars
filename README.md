@@ -102,6 +102,18 @@ covers the same characters handlebars.js escapes - `&`, `<`, `>`, `"`, `'`, `` `
 happens as the value is written, so nothing is allocated for it.
 
 
+### When a template is wrong
+
+Mistakes in a `.hbs` file are reported against the file, with a line and column, in Handlebars
+terms:
+
+```
+error: templates/results.hbs:2:6: `{{#each}}` is never closed — it needs a matching `{{/each}}`
+```
+
+Constructs that are not supported yet say so by name rather than turning into a Rust error. With
+`directory!`, one broken template does not stop the others compiling.
+
 ### Known divergence from handlebars.js
 
 `{{#with person}}` renders its block even when `person` was never set, showing empty fields, where handlebars.js would

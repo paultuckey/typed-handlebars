@@ -4,6 +4,7 @@ mod parser;
 use crate::parser::block::add_builtins;
 use crate::parser::compiler::{Compiler, Options};
 use crate::parser::context;
+use crate::parser::error::ParseError;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use std::collections::HashMap;
@@ -29,19 +30,47 @@ fn to_snake_case(s: &str) -> String {
     result
 }
 
+/// Where a template came from, for error messages.
+struct Source<'a> {
+    /// Path to the `.hbs` file, when the template is a file.
+    path: Option<&'a str>,
+}
+
+/// Renders a template error the way a Handlebars author needs to read it: their file, their line,
+/// and nothing about Rust.
+fn describe(error: &ParseError, content: &str, source: &Source<'_>) -> String {
+    let mut position = String::new();
+    if let Some(offset) = error.offset_in(content) {
+        let before = &content[..offset];
+        let line = before.matches('\n').count() + 1;
+        let column = before.rsplit('\n').next().map_or(offset, str::len) + 1;
+        position = match source.path {
+            Some(path) => format!("{}:{}:{}: ", path, line, column),
+            None => format!("line {}, column {}: ", line, column),
+        };
+    } else if let Some(path) = source.path {
+        position = format!("{}: ", path);
+    }
+    format!("{}{}", position, error)
+}
+
 fn generate_code_for_content(
     name: &str,
     content: &str,
     path_for_include: Option<&str>,
-) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+) -> Result<(proc_macro2::TokenStream, proc_macro2::TokenStream), String> {
     let struct_name_str = name.replace("-", "_");
     let struct_name = format_ident!("{}", struct_name_str);
 
     let mut block_map = HashMap::new();
     add_builtins(&mut block_map);
 
+    let source = Source {
+        path: path_for_include,
+    };
+
     // The template states its own contract; read it before generating anything.
-    let context = context::build(content).expect("Failed to compile template");
+    let context = context::build(content).map_err(|e| describe(&e, content, &source))?;
     let types = codegen::generate(&struct_name_str, &context);
 
     let options = Options {
@@ -51,11 +80,19 @@ fn generate_code_for_content(
     let compiler = Compiler::new(options, block_map);
     let rust_code = compiler
         .compile(content)
-        .expect("Failed to compile template");
-    let render_body: proc_macro2::TokenStream = rust_code
-        .code
-        .parse()
-        .expect("Failed to parse generated code");
+        .map_err(|e| describe(&e, content, &source))?;
+    let render_body: proc_macro2::TokenStream = rust_code.code.parse().map_err(|_| {
+        // Reaching here means the parser accepted something code generation could not express.
+        // That is a bug in this crate rather than in the template, so say so.
+        format!(
+            "{}internal error: dry-handlebars generated invalid Rust for this template. \
+             Please report it at https://github.com/paultuckey/dry-handlebars/issues",
+            source
+                .path
+                .map(|path| format!("{}: ", path))
+                .unwrap_or_default()
+        )
+    })?;
 
     let method_name = format_ident!("{}", to_snake_case(&struct_name_str));
 
@@ -123,13 +160,19 @@ fn generate_code_for_content(
         }
     };
 
-    (struct_def, function_def)
+    Ok((struct_def, function_def))
 }
 
-fn generate_code_for_file(path: &Path) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
-    let file_stem = path.file_stem().unwrap().to_string_lossy();
+fn generate_code_for_file(
+    path: &Path,
+) -> Result<(proc_macro2::TokenStream, proc_macro2::TokenStream), String> {
     let path_str = path.to_string_lossy();
-    let content = fs::read_to_string(path).expect("Failed to read file");
+    let file_stem = match path.file_stem() {
+        Some(stem) => stem.to_string_lossy(),
+        None => return Err(format!("{}: not a usable template file name", path_str)),
+    };
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("{}: could not be read: {}", path_str, e))?;
     generate_code_for_content(&file_stem, &content, Some(&path_str))
 }
 
@@ -170,8 +213,9 @@ pub fn dry_handlebars_directory(input: TokenStream) -> TokenStream {
 
     let mut structs = Vec::new();
     let mut functions = Vec::new();
+    let mut errors = Vec::new();
 
-    for entry in WalkDir::new(&root_path) {
+    for entry in WalkDir::new(&root_path).sort_by_file_name() {
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,
@@ -179,13 +223,22 @@ pub fn dry_handlebars_directory(input: TokenStream) -> TokenStream {
 
         let path = entry.path();
         if path.is_file() && path.extension().is_some_and(|ext| ext == "hbs") {
-            let (struct_def, function_def) = generate_code_for_file(path);
-            structs.push(struct_def);
-            functions.push(function_def);
+            // One broken template reports itself and the rest still compile, so a single typo
+            // doesn't bury the whole directory in errors.
+            match generate_code_for_file(path) {
+                Ok((struct_def, function_def)) => {
+                    structs.push(struct_def);
+                    functions.push(function_def);
+                }
+                Err(message) => {
+                    errors.push(syn::Error::new(dir_lit.span(), message).to_compile_error())
+                }
+            }
         }
     }
 
     let expanded = quote! {
+        #(#errors)*
         #(#structs)*
         #(#functions)*
     };
@@ -207,7 +260,14 @@ pub fn dry_handlebars_file(input: TokenStream) -> TokenStream {
             .into();
     }
 
-    let (struct_def, function_def) = generate_code_for_file(&path);
+    let (struct_def, function_def) = match generate_code_for_file(&path) {
+        Ok(generated) => generated,
+        Err(message) => {
+            return syn::Error::new(file_lit.span(), message)
+                .to_compile_error()
+                .into();
+        }
+    };
 
     let expanded = quote! {
         #struct_def
@@ -221,7 +281,14 @@ pub fn dry_handlebars_file(input: TokenStream) -> TokenStream {
 pub fn dry_handlebars_str(input: TokenStream) -> TokenStream {
     let StrInput { name, content } = parse_macro_input!(input as StrInput);
     let (struct_def, function_def) =
-        generate_code_for_content(&name.value(), &content.value(), None);
+        match generate_code_for_content(&name.value(), &content.value(), None) {
+            Ok(generated) => generated,
+            Err(message) => {
+                return syn::Error::new(content.span(), message)
+                    .to_compile_error()
+                    .into();
+            }
+        };
 
     let expanded = quote! {
         #struct_def
