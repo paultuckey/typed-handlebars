@@ -1,8 +1,8 @@
-error[E0599]: no method named `title` found for struct `page_builder<S0>` in the current scope
- --> tests/ui/renamed_variable.rs:8:43
+error[E0599]: no method named `title` found for struct `page::Builder<S0>` in the current scope
+ --> tests/ui/renamed_variable.rs:8:44
   |
 4 |     dry_handlebars::str!("page", r#"<h1>{{heading}}</h1>"#);
   |     ------------------------------------------------------- method `title` not found for this struct
 ...
-8 |     let _ = template::page_builder::new().title("Dub").render();
-  |                                           ^^^^^ method not found in `page_builder<page_unset_heading>`
+8 |     let _ = template::page::Builder::new().title("Dub").render();
+  |                                            ^^^^^ method not found in `page::Builder<TemplateUnsetHeading>`

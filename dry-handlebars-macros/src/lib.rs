@@ -93,10 +93,13 @@ fn describe(error: &ParseError, assembly: &Assembly) -> String {
 fn generate_code_for_content(
     name: &str,
     assembly: &Assembly,
-) -> Result<(proc_macro2::TokenStream, proc_macro2::TokenStream), String> {
+) -> Result<proc_macro2::TokenStream, String> {
     let content = &assembly.text;
-    let struct_name_str = name.replace("-", "_");
-    let struct_name = format_ident!("{}", struct_name_str);
+    let template_name = name.replace("-", "_");
+    // Everything a template generates lives in a module of its own, so a template with a `rows`
+    // list cannot collide with a template called `rows_item`, and the names stay readable.
+    let module_name = format_ident!("{}", template_name);
+    let struct_name = format_ident!("Template");
 
     let mut block_map = HashMap::new();
     add_builtins(&mut block_map);
@@ -104,7 +107,7 @@ fn generate_code_for_content(
     // The template states its own contract; read it before generating anything.
     let context = context::build(content).map_err(|e| describe(&e, assembly))?;
     let runtime = runtime_crate();
-    let types = codegen::generate(&struct_name_str, &context, &runtime);
+    let types = codegen::generate(&context, &runtime);
 
     let options = Options {
         root_var_name: Some("self"),
@@ -128,7 +131,7 @@ fn generate_code_for_content(
         )
     })?;
 
-    let method_name = format_ident!("{}", to_snake_case(&struct_name_str));
+    let method_name = format_ident!("{}", to_snake_case(&template_name));
 
     let codegen::Types {
         nested,
@@ -147,19 +150,24 @@ fn generate_code_for_content(
 
     // Generated items carry documentation so that a consumer denying `missing_docs` needs no
     // `#[allow]`, and so IDE autocomplete says what each setter is for.
-    let struct_doc = format!("The `{}` template.", struct_name_str);
+    let module_doc = format!("Types generated from the `{}` template.", template_name);
+    let struct_doc = format!("The `{}` template.", template_name);
     let new_doc = format!(
-        "Creates a `{}` from every variable it uses, in the order the template first mentions them.",
-        struct_name_str
+        "Creates it from every variable the template uses, in the order it first mentions them."
     );
     let fn_doc = format!(
-        "Renders the `{}` template. See `{}_builder` to name the variables instead.",
-        struct_name_str, struct_name_str
+        "Builds the `{}` template. See [`{}::Builder`] to name the variables instead.",
+        template_name, template_name
     );
 
+    // The function is defined inside the module, where the generated types are in scope, then
+    // re-exported beside it. `templates::page(…)` and `templates::page::RowsItem` both work,
+    // because a module and a function do not share a namespace.
     let function_def = quote! {
         #[doc = #fn_doc]
-        pub fn #method_name<#(#params),*>(#(#names: #field_types),*) -> #struct_name<#(#params),*>
+        pub fn #method_name<#(#params),*>(
+            #(#names: #field_types),*
+        ) -> #struct_name<#(#params),*>
         #where_clause
         {
             #struct_name::new(#(#names),*)
@@ -174,6 +182,8 @@ fn generate_code_for_content(
     };
 
     let struct_def = quote! {
+        #[doc = #module_doc]
+        pub mod #module_name {
         #include_bytes_stmt
 
         #(#nested)*
@@ -207,15 +217,21 @@ fn generate_code_for_content(
                 f
             }
         }
+
+        #function_def
+        }
+
+        #[doc(inline)]
+        pub use #module_name::#method_name;
     };
 
-    Ok((struct_def, function_def))
+    Ok(struct_def)
 }
 
 fn generate_code_for_file(
     path: &Path,
     partials: &Path,
-) -> Result<(proc_macro2::TokenStream, proc_macro2::TokenStream), String> {
+) -> Result<proc_macro2::TokenStream, String> {
     let path_str = path.to_string_lossy();
     let file_stem = match path.file_stem() {
         Some(stem) => stem.to_string_lossy(),
@@ -246,6 +262,45 @@ impl Parse for StrInput {
     }
 }
 
+/// Templates grouped the way the directory groups them.
+#[derive(Default)]
+struct Tree {
+    templates: Vec<proc_macro2::TokenStream>,
+    children: std::collections::BTreeMap<String, Tree>,
+}
+
+impl Tree {
+    fn insert(&mut self, branch: &[String], generated: proc_macro2::TokenStream) {
+        match branch.split_first() {
+            None => self.templates.push(generated),
+            Some((head, rest)) => self
+                .children
+                .entry(head.clone())
+                .or_default()
+                .insert(rest, generated),
+        }
+    }
+
+    fn emit(&self) -> proc_macro2::TokenStream {
+        let templates = &self.templates;
+        let children = self.children.iter().map(|(name, child)| {
+            let ident = format_ident!("{}", name.replace(['-', '.', ' '], "_"));
+            let doc = format!("Templates from the `{}` directory.", name);
+            let inner = child.emit();
+            quote! {
+                #[doc = #doc]
+                pub mod #ident {
+                    #inner
+                }
+            }
+        });
+        quote! {
+            #(#templates)*
+            #(#children)*
+        }
+    }
+}
+
 #[proc_macro]
 pub fn dry_handlebars_directory(input: TokenStream) -> TokenStream {
     let dir_lit = parse_macro_input!(input as LitStr);
@@ -263,8 +318,7 @@ pub fn dry_handlebars_directory(input: TokenStream) -> TokenStream {
         .into();
     }
 
-    let mut structs = Vec::new();
-    let mut functions = Vec::new();
+    let mut tree = Tree::default();
     let mut errors = Vec::new();
 
     for entry in WalkDir::new(&root_path).sort_by_file_name() {
@@ -274,25 +328,37 @@ pub fn dry_handlebars_directory(input: TokenStream) -> TokenStream {
         };
 
         let path = entry.path();
-        if path.is_file() && path.extension().is_some_and(|ext| ext == "hbs") {
-            // One broken template reports itself and the rest still compile, so a single typo
-            // doesn't bury the whole directory in errors.
-            match generate_code_for_file(path, &root_path) {
-                Ok((struct_def, function_def)) => {
-                    structs.push(struct_def);
-                    functions.push(function_def);
-                }
-                Err(message) => {
-                    errors.push(syn::Error::new(dir_lit.span(), message).to_compile_error())
-                }
+        if !path.is_file() || path.extension().is_none_or(|ext| ext != "hbs") {
+            continue;
+        }
+
+        // The directory layout is something the template author expressed, so mirror it as modules
+        // rather than flattening it — `templates/admin/row.hbs` becomes `templates::admin::row`.
+        let branch = match path
+            .parent()
+            .and_then(|dir| dir.strip_prefix(&root_path).ok())
+        {
+            Some(relative) => relative
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().to_string())
+                .collect(),
+            None => Vec::new(),
+        };
+
+        // One broken template reports itself and the rest still compile, so a single typo
+        // doesn't bury the whole directory in errors.
+        match generate_code_for_file(path, &root_path) {
+            Ok(generated) => tree.insert(&branch, generated),
+            Err(message) => {
+                errors.push(syn::Error::new(dir_lit.span(), message).to_compile_error())
             }
         }
     }
 
+    let templates = tree.emit();
     let expanded = quote! {
         #(#errors)*
-        #(#structs)*
-        #(#functions)*
+        #templates
     };
 
     TokenStream::from(expanded)
@@ -313,18 +379,13 @@ pub fn dry_handlebars_file(input: TokenStream) -> TokenStream {
     }
 
     let partials = path.parent().unwrap_or(Path::new(".")).to_path_buf();
-    let (struct_def, function_def) = match generate_code_for_file(&path, &partials) {
+    let expanded = match generate_code_for_file(&path, &partials) {
         Ok(generated) => generated,
         Err(message) => {
             return syn::Error::new(file_lit.span(), message)
                 .to_compile_error()
                 .into();
         }
-    };
-
-    let expanded = quote! {
-        #struct_def
-        #function_def
     };
 
     TokenStream::from(expanded)
@@ -336,18 +397,13 @@ pub fn dry_handlebars_str(input: TokenStream) -> TokenStream {
     // A `str!` template has no directory, so it has nowhere to resolve partials from.
     let assembled = Assembly::build(&content.value(), None, None)
         .and_then(|assembly| generate_code_for_content(&name.value(), &assembly));
-    let (struct_def, function_def) = match assembled {
+    let expanded = match assembled {
         Ok(generated) => generated,
         Err(message) => {
             return syn::Error::new(content.span(), message)
                 .to_compile_error()
                 .into();
         }
-    };
-
-    let expanded = quote! {
-        #struct_def
-        #function_def
     };
 
     TokenStream::from(expanded)

@@ -14,8 +14,8 @@ fn a_partial_renders_against_the_context_it_was_included_from() {
         templates::page(
             "Dub",
             vec![
-                templates::page_rows_item::new(1, "King"),
-                templates::page_rows_item::new(2, "Tubby"),
+                templates::page::RowsItem::new(1, "King"),
+                templates::page::RowsItem::new(2, "Tubby"),
             ],
         )
         .render(),
@@ -29,12 +29,10 @@ fn a_partial_renders_against_the_context_it_was_included_from() {
 #[test]
 fn a_partial_contributes_to_the_builder_of_its_includer() {
     assert_eq!(
-        templates::page_builder::new()
+        templates::page::Builder::new()
             .title("Dub")
             .rows(vec![
-                templates::page_rows_item_builder::new()
-                    .name("King")
-                    .build()
+                templates::page::RowsItemBuilder::new().name("King").build()
             ])
             .render(),
         "<h1>Dub</h1><ul><li id=\"r\">King</li></ul>",
@@ -59,8 +57,23 @@ fn a_partial_still_has_its_own_type() {
 #[test]
 fn partials_nest() {
     assert_eq!(
-        templates::wrapper("Dub", vec![templates::wrapper_rows_item::new(1, "King")]).render(),
+        templates::wrapper("Dub", vec![templates::wrapper::RowsItem::new(1, "King")]).render(),
         "<div><h1>Dub</h1><ul><li id=\"r1\">King</li></ul></div>"
+    );
+}
+
+/// The directory layout is something the template author expressed, so it becomes the module
+/// layout. Two templates called `row` in different directories used to be
+/// `E0428: the name row is defined multiple times`, with nothing naming either file.
+#[test]
+fn subdirectories_become_modules() {
+    assert_eq!(
+        templates::admin::row("King").render(),
+        "<tr class=\"admin\"><td>King</td></tr>"
+    );
+    assert_eq!(
+        templates::public::row("King").render(),
+        "<tr><td>King</td></tr>"
     );
 }
 

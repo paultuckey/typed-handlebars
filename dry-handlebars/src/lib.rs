@@ -225,7 +225,7 @@ mod tests {
             crate::str!("test", r#"{{#each rows}}<li>{{name}}</li>{{/each}}"#);
         }
         assert_eq!(
-            list::test(vec![list::test_rows_item::new("Tom & Jerry")]).render(),
+            list::test(vec![list::test::RowsItem::new("Tom & Jerry")]).render(),
             "<li>Tom &amp; Jerry</li>"
         );
 
@@ -233,7 +233,7 @@ mod tests {
             crate::str!("test", r#"{{person.name}}"#);
         }
         assert_eq!(
-            record::test(record::test_person::new("<script>")).render(),
+            record::test(record::test::Person::new("<script>")).render(),
             "&lt;script&gt;"
         );
     }
@@ -261,7 +261,7 @@ mod tests {
             );
         }
         assert_eq!(
-            template::test(template::test_person::new("King", "Tubby")).render(),
+            template::test(template::test::Person::new("King", "Tubby")).render(),
             "King Tubby"
         );
     }
@@ -311,7 +311,7 @@ mod tests {
             crate::str!("test", r#"[{{#if value}}yes{{/if}}]"#);
         }
         // Absent and false.
-        assert_eq!(template::test_builder::new().render(), "[]");
+        assert_eq!(template::test::Builder::new().render(), "[]");
         assert_eq!(template::test(false).render(), "[]");
         assert_eq!(template::test(true).render(), "[yes]");
         // Empty string and zero.
@@ -341,12 +341,12 @@ mod tests {
             );
         }
         assert_eq!(
-            template::test(vec![template::test_rows_item::new("King")]).render(),
+            template::test(vec![template::test::RowsItem::new("King")]).render(),
             //language=html
             "<ul><li>King</li></ul>"
         );
         assert_eq!(
-            template::test_builder::new().render(),
+            template::test::Builder::new().render(),
             "",
             "no rows, no list"
         );
@@ -360,8 +360,8 @@ mod tests {
         }
         assert_eq!(
             template::test(vec![
-                template::test_rows_item::new("a"),
-                template::test_rows_item::new("b"),
+                template::test::RowsItem::new("a"),
+                template::test::RowsItem::new("b"),
             ])
             .render(),
             "0:a 1:b "
@@ -375,10 +375,10 @@ mod tests {
             crate::str!("test", r#"{{#each rows}}{{name}}{{else}}none{{/each}}"#);
         }
         assert_eq!(
-            template::test(vec![template::test_rows_item::new("a")]).render(),
+            template::test(vec![template::test::RowsItem::new("a")]).render(),
             "a"
         );
-        assert_eq!(template::test_builder::new().render(), "none");
+        assert_eq!(template::test::Builder::new().render(), "none");
     }
 
     /// `{{else}}` inside `{{#unless}}`. Mirrored in `reference-ts`.
@@ -443,7 +443,7 @@ mod tests {
             );
         }
         assert_eq!(
-            template::test(template::test_author::new("King", "Tubby")).render(),
+            template::test(template::test::Author::new("King", "Tubby")).render(),
             //language=html
             "<div><h1>King Tubby</h1></div>"
         );
@@ -462,7 +462,7 @@ mod tests {
             );
         }
         assert_eq!(
-            template::test_builder::new().render(),
+            template::test::Builder::new().render(),
             //language=html
             "<div><h1></h1></div>",
             "handlebars.js would render <div></div> here"
@@ -479,7 +479,7 @@ mod tests {
             );
         }
         assert_eq!(
-            template::test(vec![template::test_authors_item::new("King")]).render(),
+            template::test(vec![template::test::AuthorsItem::new("King")]).render(),
             //language=html
             "<div><p>Hello King</p></div>"
         );
@@ -498,8 +498,8 @@ mod tests {
         }
         assert_eq!(
             template::test(vec![
-                template::test_rows_item::new("King", "king@example.com"),
-                template::test_rows_item::new("Tubby", "tubby@example.com"),
+                template::test::RowsItem::new("King", "king@example.com"),
+                template::test::RowsItem::new("Tubby", "tubby@example.com"),
             ])
             .render(),
             //language=html
@@ -528,11 +528,11 @@ mod tests {
             );
         }
         let rows = vec![
-            template::test_rows_item::new(vec![
-                template::test_rows_item_cells_item::new(1),
-                template::test_rows_item_cells_item::new(2),
+            template::test::RowsItem::new(vec![
+                template::test::RowsItemCellsItem::new(1),
+                template::test::RowsItemCellsItem::new(2),
             ]),
-            template::test_rows_item::new(vec![template::test_rows_item_cells_item::new(3)]),
+            template::test::RowsItem::new(vec![template::test::RowsItemCellsItem::new(3)]),
         ];
         assert_eq!(
             template::test(rows).render(),
@@ -548,7 +548,7 @@ mod tests {
             crate::str!("test", r#"{{person.firstname}} {{person.lastname}}"#);
         }
         assert_eq!(
-            template::test(template::test_person::new("King", "Tubby")).render(),
+            template::test(template::test::Person::new("King", "Tubby")).render(),
             "King Tubby"
         );
     }
@@ -563,7 +563,7 @@ mod tests {
             );
         }
         assert_eq!(
-            template::test(vec![template::test_rows_item::new("King")], "Studio One").render(),
+            template::test(vec![template::test::RowsItem::new("King")], "Studio One").render(),
             //language=html
             "<li>King of Studio One</li>"
         );
@@ -579,7 +579,7 @@ mod tests {
             );
         }
         assert_eq!(
-            template::test(vec![template::test_rows_item::new("King")]).render(),
+            template::test(vec![template::test::RowsItem::new("King")]).render(),
             //language=html
             "<li>King</li>"
         );
@@ -597,12 +597,12 @@ mod tests {
             );
         }
         assert_eq!(
-            template::test_builder::new().render(),
+            template::test::Builder::new().render(),
             "<h1></h1><p></p>",
             "nothing set at all"
         );
         assert_eq!(
-            template::test_builder::new().title("Dub").render(),
+            template::test::Builder::new().title("Dub").render(),
             "<h1>Dub</h1><p></p>",
             "only one of the two set"
         );
@@ -614,14 +614,14 @@ mod tests {
         mod list {
             crate::str!("test", r#"[{{#each rows}}<li>{{name}}</li>{{/each}}]"#);
         }
-        assert_eq!(list::test_builder::new().render(), "[]");
+        assert_eq!(list::test::Builder::new().render(), "[]");
 
         mod conditional {
             crate::str!("test", r#"[{{#if shown}}yes{{/if}}]"#);
         }
-        assert_eq!(conditional::test_builder::new().render(), "[]");
+        assert_eq!(conditional::test::Builder::new().render(), "[]");
         assert_eq!(
-            conditional::test_builder::new().shown(true).render(),
+            conditional::test::Builder::new().shown(true).render(),
             "[yes]"
         );
     }
@@ -632,10 +632,10 @@ mod tests {
         mod template {
             crate::str!("test", r#"[{{person.first}}|{{person.last}}]"#);
         }
-        assert_eq!(template::test_builder::new().render(), "[|]");
+        assert_eq!(template::test::Builder::new().render(), "[|]");
         assert_eq!(
-            template::test_builder::new()
-                .person(template::test_person_builder::new().first("King").build())
+            template::test::Builder::new()
+                .person(template::test::PersonBuilder::new().first("King").build())
                 .render(),
             "[King|]",
             "a record can itself be partly set"
@@ -650,7 +650,7 @@ mod tests {
             crate::str!("test", r#"<p>{{firstname}} {{lastname}}</p>"#);
         }
         assert_eq!(
-            template::test_builder::new()
+            template::test::Builder::new()
                 .firstname("King")
                 .lastname("Tubby")
                 .render(),
@@ -658,7 +658,7 @@ mod tests {
         );
         // …and the other way round.
         assert_eq!(
-            template::test_builder::new()
+            template::test::Builder::new()
                 .lastname("Tubby")
                 .firstname("King")
                 .render(),
@@ -677,11 +677,11 @@ mod tests {
             );
         }
         let rows = vec![
-            template::test_rows_item_builder::new()
+            template::test::RowsItemBuilder::new()
                 .name("King")
                 .email("king@example.com")
                 .build(),
-            template::test_rows_item_builder::new()
+            template::test::RowsItemBuilder::new()
                 .email("tubby@example.com")
                 .name("Tubby")
                 .build(),
@@ -689,7 +689,7 @@ mod tests {
         let expected = "<h1>Dub</h1><li>King king@example.com</li><li>Tubby tubby@example.com</li>";
 
         assert_eq!(
-            template::test_builder::new()
+            template::test::Builder::new()
                 .title("Dub")
                 .rows(&rows)
                 .render(),
@@ -697,7 +697,7 @@ mod tests {
         );
 
         // `build` hands back the template value, which can be rendered more than once.
-        let page = template::test_builder::new()
+        let page = template::test::Builder::new()
             .rows(rows)
             .title("Dub")
             .build();
@@ -717,8 +717,8 @@ mod tests {
             );
         }
         let rows = vec![
-            template::test_rows_item::new("King"),
-            template::test_rows_item::new("Tubby"),
+            template::test::RowsItem::new("King"),
+            template::test::RowsItem::new("Tubby"),
         ];
         let expected = "<li>King</li><li>Tubby</li>";
 
@@ -729,7 +729,7 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(template::test(rows).render(), expected);
 
-        let array = [template::test_rows_item::new("King")];
+        let array = [template::test::RowsItem::new("King")];
         assert_eq!(template::test(&array).render(), "<li>King</li>");
         assert_eq!(template::test(array).render(), "<li>King</li>");
     }
@@ -745,8 +745,8 @@ mod tests {
             );
         }
         let page = template::test(vec![
-            template::test_rows_item::new("a"),
-            template::test_rows_item::new("b"),
+            template::test::RowsItem::new("a"),
+            template::test::RowsItem::new("b"),
         ]);
         assert_eq!(page.render(), "ab|ab");
         // …and the value is still usable afterwards.

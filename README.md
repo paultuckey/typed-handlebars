@@ -60,7 +60,7 @@ call a template — but it names each variable, so nothing depends on argument o
 offers the names rather than you retyping them:
 
 ```rust
-templates::button_builder::new()
+templates::button::Builder::new()
     .btn_id(42)
     .btn_name("Save")
     .render()
@@ -70,7 +70,7 @@ You only set what you have. Anything you leave out renders as empty, a list with
 condition, exactly as an undefined variable does in Handlebars:
 
 ```rust
-templates::button_builder::new().btn_id(42).render()   // btn_name renders as nothing
+templates::button::Builder::new().btn_id(42).render()   // btn_name renders as nothing
 ```
 
 
@@ -131,6 +131,19 @@ against the context it was included from, so this works with no extra wiring:
 The partial's variables become part of the including template, so `page` asks for rows of `id` and
 `name` — you never name `row.hbs` in Rust. `row.hbs` still gets its own type, so it can be rendered
 on its own too.
+
+### Where the generated names live
+
+Each template gets a module of its own, named after the file, holding the types it needs. The
+directory layout becomes the module layout:
+
+```
+templates/page.hbs          templates::page(…)                 templates::page::RowsItem
+templates/admin/row.hbs     templates::admin::row(…)           templates::admin::row::Builder
+```
+
+So two templates called `row` in different directories are two different modules, rather than a
+name collision.
 
 Partials are resolved at compile time by splicing, so there is no second `render` call and no
 intermediate `String`. Editing a partial rebuilds every template that includes it. Cycles, unknown

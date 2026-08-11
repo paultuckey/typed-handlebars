@@ -25,15 +25,15 @@ fn main() {
     let html4 = templates::todo_list(
         "Today",
         vec![
-            templates::todo_list_todos_item::new(
+            templates::todo_list::TodosItem::new(
                 1,
                 "Buy milk",
-                templates::todo_list_todos_item_owner::new("King"),
+                templates::todo_list::TodosItemOwner::new("King"),
             ),
-            templates::todo_list_todos_item::new(
+            templates::todo_list::TodosItem::new(
                 2,
                 "Write docs",
-                templates::todo_list_todos_item_owner::new("Tubby"),
+                templates::todo_list::TodosItemOwner::new("Tubby"),
             ),
         ],
     )
@@ -42,7 +42,7 @@ fn main() {
 
     // The builder is optional. It names each variable, and anything left unset renders empty —
     // here there are no todos, so the loop produces nothing.
-    let html5 = templates::todo_list_builder::new()
+    let html5 = templates::todo_list::Builder::new()
         .list_name("Nothing to do")
         .render();
     println!("{}", html5);

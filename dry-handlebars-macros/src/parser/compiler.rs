@@ -589,28 +589,25 @@ impl Compiler {
         }
         rust.code.push('"');
         for pending in pending.iter() {
-            match pending {
-                PendingWrite::Expression(expression, escaping) => {
-                    rust.code.push_str(", ");
-                    if let Escaping::Html = escaping {
-                        rust.code.push_str(compile.runtime);
-                        rust.code.push_str("::escape(&");
-                    }
-                    compile.resolve(
-                        &Expression {
-                            expression_type: ExpressionType::Raw,
-                            prefix: "",
-                            content: expression.content,
-                            postfix: "",
-                            raw: expression.raw,
-                        },
-                        rust,
-                    )?;
-                    if let Escaping::Html = escaping {
-                        rust.code.push(')');
-                    }
+            if let PendingWrite::Expression(expression, escaping) = pending {
+                rust.code.push_str(", ");
+                if let Escaping::Html = escaping {
+                    rust.code.push_str(compile.runtime);
+                    rust.code.push_str("::escape(&");
                 }
-                _ => (),
+                compile.resolve(
+                    &Expression {
+                        expression_type: ExpressionType::Raw,
+                        prefix: "",
+                        content: expression.content,
+                        postfix: "",
+                        raw: expression.raw,
+                    },
+                    rust,
+                )?;
+                if let Escaping::Html = escaping {
+                    rust.code.push(')');
+                }
             }
         }
         rust.code.push_str(")?;");

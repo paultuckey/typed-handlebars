@@ -5,5 +5,5 @@ mod template {
 }
 
 fn main() {
-    let _ = template::page_builder::new().title("Dub").render();
+    let _ = template::page::Builder::new().title("Dub").render();
 }

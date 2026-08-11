@@ -131,6 +131,25 @@ impl quote::ToTokens for Marker {
 
 const MARKER: Marker = Marker;
 
+/// Turns a template variable name into the CamelCase half of a generated type name.
+fn camel(name: &str) -> String {
+    let mut out = String::new();
+    let mut capitalise = true;
+    for character in name.chars() {
+        if character == '_' || character == '-' {
+            capitalise = true;
+            continue;
+        }
+        if capitalise {
+            out.extend(character.to_uppercase());
+            capitalise = false;
+        } else {
+            out.push(character);
+        }
+    }
+    out
+}
+
 /// State shared across one template's code generation.
 struct State {
     /// Names generic parameters `T0`, `T1`, … so they never collide.
@@ -163,6 +182,7 @@ impl State {
 /// naming the variable.
 fn builder_for(
     type_name: &Ident,
+    builder_name: &Ident,
     shape: &Shape,
     renders: bool,
     runtime: &TokenStream,
@@ -171,7 +191,6 @@ fn builder_for(
         // A template with no variables has nothing to wire up.
         return quote! {};
     }
-    let builder_name = format_ident!("{}_builder", type_name);
     let builder_doc = format!(
         "Builds a [`{}`] by naming each variable, so nothing depends on argument order.",
         type_name
@@ -185,7 +204,7 @@ fn builder_for(
     let unset: Vec<Ident> = shape
         .plain_names
         .iter()
-        .map(|name| format_ident!("{}_unset_{}", type_name, name))
+        .map(|name| format_ident!("{}Unset{}", type_name, camel(name)))
         .collect();
 
     // One setter per variable: it replaces its own slot and passes the others through.
@@ -326,13 +345,15 @@ pub struct Types {
 /// Builds the types for a template.
 ///
 /// Everything comes from the template: it is the only place that describes the data.
-pub fn generate(root_name: &str, context: &Context, runtime: &TokenStream) -> Types {
+pub fn generate(context: &Context, runtime: &TokenStream) -> Types {
     let mut state = State {
         counter: 0,
         runtime: runtime.clone(),
     };
     let mut nested = Vec::new();
-    let mut shape = build(root_name, context, &mut state, &mut nested);
+    // Nested types are named from their path through the template — `RowsItemCellsItem` — and the
+    // template's own module keeps them from colliding with anything else.
+    let mut shape = build("", context, &mut state, &mut nested);
 
     let declarations = shape.all_declarations();
     let initialisers = shape.all_initialisers();
@@ -347,8 +368,13 @@ pub fn generate(root_name: &str, context: &Context, runtime: &TokenStream) -> Ty
         shape.predicates.push(quote! { #param: #runtime::Truthy });
     }
 
-    let root_name = format_ident!("{}", root_name);
-    let builder = builder_for(&root_name, &shape, true, &state.runtime);
+    let builder = builder_for(
+        &format_ident!("Template"),
+        &format_ident!("Builder"),
+        &shape,
+        true,
+        &state.runtime,
+    );
 
     Types {
         nested,
@@ -416,8 +442,8 @@ fn field_type(
         }
 
         FieldKind::Object(inner) => {
-            let type_name = format_ident!("{}_{}", prefix, field.name);
-            let doc = format!("The `{}` record used by `{}`.", field.name, prefix);
+            let type_name = format_ident!("{}{}", prefix, camel(&field.name));
+            let doc = format!("The `{}` record.", field.name);
             let inner_shape = declare(&type_name, &doc, inner, state, nested);
 
             // An unset record is one with every field empty.
@@ -437,8 +463,8 @@ fn field_type(
                 shape.display_params.push(param.clone());
                 (quote! { #param }, empty_type(&runtime))
             } else {
-                let type_name = format_ident!("{}_{}_item", prefix, field.name);
-                let doc = format!("One item of the `{}` list in `{}`.", field.name, prefix);
+                let type_name = format_ident!("{}{}Item", prefix, camel(&field.name));
+                let doc = format!("One item of the `{}` list.", field.name);
                 let inner_shape = declare(&type_name, &doc, item, state, nested);
                 let inner_empties = inner_shape.param_empties.clone();
                 let empty_item = quote! { #type_name<#(#inner_empties),*> };
@@ -500,7 +526,8 @@ fn declare(
     let declarations = shape.all_declarations();
     let initialisers = shape.all_initialisers();
     let where_clause = where_clause(&shape.predicates);
-    let builder = builder_for(type_name, &shape, false, &runtime);
+    let builder_name = format_ident!("{}Builder", type_name);
+    let builder = builder_for(type_name, &builder_name, &shape, false, &runtime);
 
     let new_doc = format!(
         "Creates a `{}` from every variable it uses, in the order the template first mentions them.",
