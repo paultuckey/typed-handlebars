@@ -89,6 +89,31 @@ describe('Handlebars Reference Tests', () => {
         expect(template({})).toBe('');
     });
 
+    // Mirrors `double_braces_escape_and_triple_braces_do_not` in the Rust suite.
+    it('double_braces_escape_and_triple_braces_do_not', () => {
+        const template = Handlebars.compile('<p>{{ two }}|{{{ three }}}</p>');
+        const result = template({ two: "a&b<c>", three: "a&b<c>" });
+        expect(result).toBe('<p>a&amp;b&lt;c&gt;|a&b<c></p>');
+    });
+
+    // Mirrors `escaping_covers_the_handlebars_character_set`. This is the definition the Rust
+    // escaper is written against.
+    it('escaping_covers_the_handlebars_character_set', () => {
+        const template = Handlebars.compile('{{ value }}');
+        expect(template({ value: `& < > " ' \` =` }))
+            .toBe('&amp; &lt; &gt; &quot; &#x27; &#x60; &#x3D;');
+        expect(template({ value: "plain text 123" })).toBe('plain text 123');
+        expect(template({ value: "héllo → <b>" })).toBe('héllo → &lt;b&gt;');
+    });
+
+    it('escaping_applies_inside_blocks_and_records', () => {
+        const list = Handlebars.compile('{{#each rows}}<li>{{name}}</li>{{/each}}');
+        expect(list({ rows: [{ name: "Tom & Jerry" }] })).toBe('<li>Tom &amp; Jerry</li>');
+
+        const record = Handlebars.compile('{{person.name}}');
+        expect(record({ person: { name: "<script>" } })).toBe('&lt;script&gt;');
+    });
+
     it('it_works', () => {
         const template = Handlebars.compile('Hello {{{name}}}!');
         const result = template({ name: "King" });

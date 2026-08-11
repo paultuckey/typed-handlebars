@@ -25,6 +25,50 @@ impl<T> AsRef<[T]> for Empty {
     }
 }
 
+/// Wraps a value so that `{{ }}` writes it HTML-escaped.
+///
+/// Generated code calls this; you should never need to name it. Escaping happens as the value is
+/// written, so nothing is allocated on the way.
+pub fn escape<T: core::fmt::Display + ?Sized>(value: &T) -> Escaped<'_, T> {
+    Escaped(value)
+}
+
+/// The HTML-escaping wrapper produced by [`escape`].
+pub struct Escaped<'a, T: ?Sized>(&'a T);
+
+impl<T: core::fmt::Display + ?Sized> core::fmt::Display for Escaped<'_, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        use core::fmt::Write;
+        write!(EscapeWriter(f), "{}", self.0)
+    }
+}
+
+/// Escapes as it forwards, so a large value never lands in a temporary buffer.
+struct EscapeWriter<'a, 'b>(&'a mut core::fmt::Formatter<'b>);
+
+impl core::fmt::Write for EscapeWriter<'_, '_> {
+    fn write_str(&mut self, text: &str) -> core::fmt::Result {
+        // The same set handlebars.js escapes, so output matches character for character.
+        let mut written = 0;
+        for (index, character) in text.char_indices() {
+            let replacement = match character {
+                '&' => "&amp;",
+                '<' => "&lt;",
+                '>' => "&gt;",
+                '"' => "&quot;",
+                '\'' => "&#x27;",
+                '`' => "&#x60;",
+                '=' => "&#x3D;",
+                _ => continue,
+            };
+            self.0.write_str(&text[written..index])?;
+            self.0.write_str(replacement)?;
+            written = index + character.len_utf8();
+        }
+        self.0.write_str(&text[written..])
+    }
+}
+
 /// Whether a value counts as true in `{{#if}}` and `{{#unless}}`.
 ///
 /// This follows handlebars.js: absent, `false`, an empty string, zero and an empty list are all
@@ -146,6 +190,69 @@ mod tests {
             template::test("King", "Tubby").render(),
             "<p>King Tubby</p>"
         );
+    }
+
+    /// `{{ }}` escapes and `{{{ }}}` does not, as Handlebars specifies. These used to emit
+    /// identical code, so `{{ }}` passed markup straight through.
+    #[test]
+    fn double_braces_escape_and_triple_braces_do_not() {
+        mod template {
+            crate::str!("test", r#"<p>{{ two }}|{{{ three }}}</p>"#);
+        }
+        assert_eq!(
+            template::test("a&b<c>", "a&b<c>").render(),
+            "<p>a&amp;b&lt;c&gt;|a&b<c></p>"
+        );
+    }
+
+    /// The same characters handlebars.js escapes, so output matches it exactly. Mirrored in
+    /// `reference-ts`.
+    #[test]
+    fn escaping_covers_the_handlebars_character_set() {
+        mod template {
+            crate::str!("test", r#"{{ value }}"#);
+        }
+        assert_eq!(
+            template::test(r#"& < > " ' ` ="#).render(),
+            "&amp; &lt; &gt; &quot; &#x27; &#x60; &#x3D;"
+        );
+        // Text with nothing to escape passes through untouched.
+        assert_eq!(template::test("plain text 123").render(), "plain text 123");
+        // Multi-byte characters are not disturbed.
+        assert_eq!(template::test("héllo → <b>").render(), "héllo → &lt;b&gt;");
+    }
+
+    /// Escaping is about how a value is written, so it applies wherever a value is written.
+    #[test]
+    fn escaping_applies_inside_blocks_and_records() {
+        mod list {
+            crate::str!("test", r#"{{#each rows}}<li>{{name}}</li>{{/each}}"#);
+        }
+        assert_eq!(
+            list::test(vec![list::test_rows_item::new("Tom & Jerry")]).render(),
+            "<li>Tom &amp; Jerry</li>"
+        );
+
+        mod record {
+            crate::str!("test", r#"{{person.name}}"#);
+        }
+        assert_eq!(
+            record::test(record::test_person::new("<script>")).render(),
+            "&lt;script&gt;"
+        );
+    }
+
+    /// Pre-rendered markup goes in `{{{ }}}`, which is how Handlebars does it too.
+    #[test]
+    fn a_nested_template_can_be_passed_through_triple_braces() {
+        mod row {
+            crate::str!("test", r#"<li>{{name}}</li>"#);
+        }
+        mod page {
+            crate::str!("test", r#"<ul>{{{ rows }}}</ul>"#);
+        }
+        let rows = row::test("King").render();
+        assert_eq!(page::test(rows).render(), "<ul><li>King</li></ul>");
     }
 
     #[test]
@@ -663,6 +770,20 @@ mod tests {
             );
         }
         assert_eq!(template::test().render(), "wang doodle {{{{/dandy}}}}");
+    }
+
+    /// A helper's output goes through `{{ }}`, so it is escaped like anything else.
+    #[test]
+    fn format_helper_output_is_escaped() {
+        mod escaped {
+            crate::str!("test", r#"[{{format "{:>8}" value}}]"#);
+        }
+        assert_eq!(escaped::test("a<b>").render(), "[    a&lt;b&gt;]");
+
+        mod raw {
+            crate::str!("test", r#"[{{{format "{:>8}" value}}}]"#);
+        }
+        assert_eq!(raw::test("a<b>").render(), "[    a<b>]");
     }
 
     #[test]

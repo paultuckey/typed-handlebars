@@ -154,31 +154,31 @@ pub struct Scope {
 enum PendingWrite<'a> {
     /// Raw text to write
     Raw(&'a str),
-    /// Expression to evaluate and write
+    /// Expression to evaluate and write, wrapped in the given prefix and postfix
     Expression((Expression<'a>, &'static str, &'static str)),
-    Format((&'a str, &'a str, &'a str)),
+    Format((&'a str, &'a str, &'a str, &'static str, &'static str)),
 }
 
 /// Rust code generation state
 pub struct Rust {
-    /// Set of used traits
-    pub using: HashSet<String>,
     /// Generated code
     pub code: String,
     /// Top level variables
     pub top_level_vars: HashSet<String>,
 }
 
-/// Trait for HTML escaping
-pub static USE_AS_DISPLAY: &str = "Display";
-/// Trait for raw HTML output
-pub static USE_AS_DISPLAY_HTML: &str = "Display";
+/// How `{{{ raw }}}` is written: straight out, exactly as given.
+static WRITE_RAW: (&str, &str) = (", ", "");
+/// How `{{ escaped }}` is written: through the runtime's HTML escaper.
+///
+/// This is the difference Handlebars promises and this crate used not to deliver — both forms
+/// emitted identical code, so `{{ }}` silently passed markup through.
+static WRITE_ESCAPED: (&str, &str) = (", ::dry_handlebars::escape(&", ")");
 
 impl Rust {
     /// Creates a new Rust code generator
     pub fn new() -> Self {
         Self {
-            using: HashSet::new(),
             code: String::new(),
             top_level_vars: HashSet::new(),
         }
@@ -576,26 +576,31 @@ impl Compiler {
             match pending {
                 PendingWrite::Raw(raw) => rust.code.push_str(self.escape(raw).as_ref()),
                 PendingWrite::Expression(_) => rust.code.push_str("{}"),
-                PendingWrite::Format((_, format, _)) => rust.code.push_str(format),
+                PendingWrite::Format(_) => rust.code.push_str("{}"),
             }
         }
         rust.code.push('"');
         for pending in pending.iter() {
             match pending {
-                PendingWrite::Expression((expression, uses, display)) => {
+                PendingWrite::Expression((expression, prefix, postfix)) => {
                     compile.resolve(
                         &Expression {
                             expression_type: ExpressionType::Raw,
-                            prefix: ", ",
+                            prefix,
                             content: expression.content,
-                            postfix: display,
+                            postfix,
                             raw: expression.raw,
                         },
                         rust,
                     )?;
-                    rust.using.insert(uses.to_string());
                 }
-                PendingWrite::Format((raw, _, content)) => {
+                PendingWrite::Format((raw, format, content, prefix, postfix)) => {
+                    // Formatted through `format_args!` rather than inline, so that `{{ }}` can
+                    // wrap the result in the escaper just like any other value.
+                    rust.code.push_str(prefix);
+                    rust.code.push_str("format_args!(\"");
+                    rust.code.push_str(format);
+                    rust.code.push('"');
                     compile.resolve(
                         &Expression {
                             expression_type: ExpressionType::Raw,
@@ -606,6 +611,8 @@ impl Compiler {
                         },
                         rust,
                     )?;
+                    rust.code.push(')');
+                    rust.code.push_str(postfix);
                 }
                 _ => (),
             }
@@ -617,18 +624,17 @@ impl Compiler {
 
     fn select_write<'a>(
         expression: &Expression<'a>,
-        uses: &'static str,
-        postfix: &'static str,
+        (prefix, postfix): (&'static str, &'static str),
     ) -> Result<PendingWrite<'a>> {
         if let Some(token) = Token::first(expression.content)? {
             if let TokenType::Variable = token.token_type {
                 if token.value != "format" {
-                    return Ok(PendingWrite::Expression((*expression, uses, postfix)));
+                    return Ok(PendingWrite::Expression((*expression, prefix, postfix)));
                 }
                 let pattern = match token.next()? {
                     Some(token) => token,
                     _ => {
-                        return Ok(PendingWrite::Expression((*expression, uses, postfix)));
+                        return Ok(PendingWrite::Expression((*expression, prefix, postfix)));
                     }
                 };
                 let value = match pattern.next() {
@@ -641,6 +647,8 @@ impl Compiler {
                             expression.raw,
                             &pattern.value[1..pattern.value.len() - 1],
                             value.value,
+                            prefix,
+                            postfix,
                         )));
                     }
                 }
@@ -650,7 +658,7 @@ impl Compiler {
                 ));
             }
         }
-        Ok(PendingWrite::Expression((*expression, uses, postfix)))
+        Ok(PendingWrite::Expression((*expression, prefix, postfix)))
     }
 
     /// Compiles a template
@@ -673,13 +681,13 @@ impl Compiler {
                 pending.push(PendingWrite::Raw(prefix));
             }
             match expression_type {
-                ExpressionType::Raw => pending.push(Self::select_write(&expr, USE_AS_DISPLAY, "")?),
+                ExpressionType::Raw => pending.push(Self::select_write(&expr, WRITE_RAW)?),
                 ExpressionType::HtmlEscaped => {
                     if *content == "else" {
                         self.commit_pending(&mut pending, &mut compile, &mut rust)?;
                         compile.handle_else(&expr, &mut rust)?
                     } else {
-                        pending.push(Self::select_write(&expr, USE_AS_DISPLAY_HTML, "")?)
+                        pending.push(Self::select_write(&expr, WRITE_ESCAPED)?)
                     }
                 }
                 ExpressionType::Open => {

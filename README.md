@@ -78,6 +78,7 @@ templates::button_builder::new().btn_id(42).render()   // btn_name renders as no
 
 Still in alpha stage, only a subset of handlebars functionality is supported. Specifically:
 
+- `{{ }}` HTML-escapes, `{{{ }}}` does not
 - Uses `Display` trait for variables
 - Get a struct and a template function for a `str`
 - An optional builder per template, with one named setter per variable; anything left unset renders
@@ -93,6 +94,13 @@ Still in alpha stage, only a subset of handlebars functionality is supported. Sp
 
 Every type is generated from the template — there is no way, and no need, to name a Rust type in the macro call or in
 the `.hbs` file. Fields are generic, so you pass whatever you already have (`&str`, `String`, `u32`, …).
+
+### Escaping
+
+`{{ name }}` HTML-escapes its value and `{{{ name }}}` does not, as Handlebars specifies. Escaping
+covers the same characters handlebars.js escapes - `&`, `<`, `>`, `"`, `'`, `` ` `` and `=` - and
+happens as the value is written, so nothing is allocated for it.
+
 
 ### Known divergence from handlebars.js
 
