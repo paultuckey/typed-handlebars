@@ -175,6 +175,199 @@ mod tests {
         );
     }
 
+    /// The template says `rows` is a list whose items have a `name`, so the macro generates the
+    /// item type. Nothing here declares a type or implements a trait.
+    #[test]
+    fn each_generates_the_item_type() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"<ul>{{#each rows}}<li>{{name}} {{email}}</li>{{/each}}</ul>"#
+            );
+        }
+        assert_eq!(
+            template::test(vec![
+                template::test_rows_item::new("King", "king@example.com"),
+                template::test_rows_item::new("Tubby", "tubby@example.com"),
+            ])
+            .render(),
+            //language=html
+            "<ul><li>King king@example.com</li><li>Tubby tubby@example.com</li></ul>"
+        );
+    }
+
+    /// An `{{#each}}` whose body only writes `{{this}}` iterates values, not records, so no item
+    /// struct is generated.
+    #[test]
+    fn each_over_plain_values_needs_no_item_type() {
+        mod template {
+            crate::str!("test", r#"{{#each tags}}[{{this}}]{{/each}}"#);
+        }
+        assert_eq!(template::test(vec!["a", "b"]).render(), "[a][b]");
+        assert_eq!(template::test([1, 2, 3]).render(), "[1][2][3]");
+    }
+
+    #[test]
+    fn nested_each_generates_nested_item_types() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each rows}}<tr>{{#each cells}}<td>{{value}}</td>{{/each}}</tr>{{/each}}"#
+            );
+        }
+        let rows = vec![
+            template::test_rows_item::new(vec![
+                template::test_rows_item_cells_item::new(1),
+                template::test_rows_item_cells_item::new(2),
+            ]),
+            template::test_rows_item::new(vec![template::test_rows_item_cells_item::new(3)]),
+        ];
+        assert_eq!(
+            template::test(rows).render(),
+            //language=html
+            "<tr><td>1</td><td>2</td></tr><tr><td>3</td></tr>"
+        );
+    }
+
+    /// Without a declared type, `{{ person.name }}` generates the record it implies.
+    #[test]
+    fn dotted_paths_generate_a_record_type() {
+        mod template {
+            crate::str!("test", r#"{{person.firstname}} {{person.lastname}}"#);
+        }
+        assert_eq!(
+            template::test(template::test_person::new("King", "Tubby")).render(),
+            "King Tubby"
+        );
+    }
+
+    #[test]
+    fn each_can_reach_the_enclosing_scope() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each rows}}<li>{{name}} of {{../company}}</li>{{/each}}"#
+            );
+        }
+        assert_eq!(
+            template::test(vec![template::test_rows_item::new("King")], "Studio One").render(),
+            //language=html
+            "<li>King of Studio One</li>"
+        );
+    }
+
+    #[test]
+    fn each_accepts_a_named_item() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each rows as |row|}}<li>{{row.name}}</li>{{/each}}"#
+            );
+        }
+        assert_eq!(
+            template::test(vec![template::test_rows_item::new("King")]).render(),
+            //language=html
+            "<li>King</li>"
+        );
+    }
+
+    /// Rendering borrows, so a caller can pass a list they still own — no clone, no giving up the
+    /// data.
+    #[test]
+    fn each_accepts_borrowed_lists() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each rows}}<li>{{name}}</li>{{/each}}"#
+            );
+        }
+        let rows = vec![
+            template::test_rows_item::new("King"),
+            template::test_rows_item::new("Tubby"),
+        ];
+        let expected = "<li>King</li><li>Tubby</li>";
+
+        assert_eq!(template::test(&rows).render(), expected);
+        assert_eq!(template::test(rows.as_slice()).render(), expected);
+
+        // The caller still owns it, and can hand it over afterwards if they want to.
+        assert_eq!(rows.len(), 2);
+        assert_eq!(template::test(rows).render(), expected);
+
+        let array = [template::test_rows_item::new("King")];
+        assert_eq!(template::test(&array).render(), "<li>King</li>");
+        assert_eq!(template::test(array).render(), "<li>King</li>");
+    }
+
+    /// A declared type keeps `IntoIterator`, so the escape hatch still covers containers that
+    /// aren't slice-backed.
+    #[test]
+    fn a_declared_list_type_need_not_be_slice_backed() {
+        use std::collections::VecDeque;
+
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each authors}}<p>{{first_name}}</p>{{/each}}"#,
+                ("authors", std::collections::VecDeque<super::Author>)
+            );
+        }
+        let mut authors = VecDeque::new();
+        authors.push_back(Author {
+            first_name: "King".to_string(),
+            last_name: "Tubby".to_string(),
+        });
+        assert_eq!(template::test(authors).render(), "<p>King</p>");
+    }
+
+    /// Rendering borrows rather than consumes, so a template may walk the same list twice.
+    #[test]
+    fn the_same_list_can_be_iterated_twice() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each rows}}{{name}}{{/each}}|{{#each rows}}{{name}}{{/each}}"#
+            );
+        }
+        let page = template::test(vec![
+            template::test_rows_item::new("a"),
+            template::test_rows_item::new("b"),
+        ]);
+        assert_eq!(page.render(), "ab|ab");
+        // …and the value is still usable afterwards.
+        assert_eq!(page.render(), "ab|ab");
+    }
+
+    /// A type declared in Rust wins over the generated one, so existing domain types wire straight
+    /// in — the fields just have to line up with what the template asks for.
+    #[test]
+    fn a_declared_type_replaces_the_generated_one() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each authors}}<p>{{first_name}}</p>{{/each}}"#,
+                ("authors", Vec<super::Author>)
+            );
+        }
+        assert_eq!(
+            template::test(vec![Author {
+                first_name: "King".to_string(),
+                last_name: "Tubby".to_string(),
+            }])
+            .render(),
+            //language=html
+            "<p>King</p>"
+        );
+    }
+
     #[test]
     fn test_comment() {
         mod template {

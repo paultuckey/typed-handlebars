@@ -22,6 +22,7 @@
 
 pub mod block;
 pub mod compiler;
+pub mod context;
 pub mod error;
 pub mod expression;
 pub mod expression_tokenizer;

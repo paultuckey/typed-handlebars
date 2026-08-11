@@ -138,9 +138,7 @@ impl<'a> Expression<'a> {
                 .ok_or(ParseError::unclosed(open.raw))?;
             let start = candidate + 5;
             let remains = &postfix[start..];
-            let close = remains
-                .find("}}}}")
-                .ok_or(ParseError::unclosed(open.raw))?;
+            let close = remains.find("}}}}").ok_or(ParseError::unclosed(open.raw))?;
             let end = start + close + 4;
             if &remains[..close] == open.content {
                 return Ok(Self {

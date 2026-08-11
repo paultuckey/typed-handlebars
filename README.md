@@ -1,35 +1,54 @@
 # dry-handlebars
 
-_Experimental_ compile-time checked [Handlebars](https://handlebarsjs.com/) templates for Rust.
-Based on the parser from [rusty-handlebars](https://github.com/h-i-v-e/rusty-handlebars).
+_Experimental_ compile-time checked [Handlebars](https://handlebarsjs.com/) templates for Rust. Based on the parser
+from [rusty-handlebars](https://github.com/h-i-v-e/rusty-handlebars).
 
 The blog post [code first or schema first](https://blog.logrocket.com/code-first-vs-schema-first-development-graphql/)
 highlights that there are two way of thinking about templating. Code first or template first.
 
-This library takes a template first approach. The designs gets pure handlebars files (hbs) that can be edited separately.
+This library takes a template first approach. The designer makes pure handlebars files (hbs) that can be edited
+separately. Then the Rust developer gets a pure rust experience with compile time checking of templates and how they are
+called from Rust.
 
-The Rust developer gets pure rust experience with compile time checking of templates and how they are called from Rust.
+The Rust developer should not have to repeat the template name or variable names in Rust code, hence the name DRY (don't
+repeat yourself).
 
-The Rust developer should not have to repeat the template structure in Rust code, hence the name DRY (don't repeat yourself).
+## Goals
 
-Take a directory of handlebars files, for example:
+**As much as possible at compile time, as little as possible at runtime.** Templates are turned into Rust when the crate
+is built, so there is no parsing, no template registry and no lookups while your program runs — just the code the
+template implies. Where a design choice trades build-time work against run-time work, build time wins.
+
+**The Handlebars author needs to know no Rust.** An `.hbs` file is plain Handlebars, written by someone who never has to
+think about what happens downstream. No Rust type names, no annotations, no macro-specific syntax — nothing in the
+template that a designer could not write, or that would stop the same file rendering under handlebars.js.
+
+**The code generator takes on the complexity.** The template already says what data it needs: `{{#each rows}}{{ name }}`
+means a list of records with a `name`. The macro reads that and generates the types, so nobody has to declare them
+twice. There are no traits for you to implement and nothing to derive.
+
+**The Rust developer only does the wiring.** Connect your data to what the generator produced, with the names supplied
+by IDE autocomplete rather than retyped from the template. Getting a name wrong should be a compile error, not something
+you discover in a rendered page.
+
+Example: Take a directory of handlebars files:
 
 `templates/button.hbs`:
 
 ```handlebars
-
 <button id="btn{{ btn_id }}" class="btn btn-light">
     {{ btn_name }}
 </button>
 ```
 
-Usage in rust:
+Then in rust:
 
 ```rust
 mod templates {
     dry_handlebars::directory!("templates/");
 }
 fn get_html() -> String {
+    // templates::button is automatically generated 
     templates::button(42, "Save").render()
 }
 ```
@@ -42,11 +61,15 @@ Still in alpha stage, only a subset of handlebars functionality is supported. Sp
 - Get a struct and a template function for a `str`
 - Macro for a directory of templates, single file or a string
 - Simple top level keys (e.g. `{{ todo_id }}`) -> Fields must implement the `Display` trait
-- Item properties (e.g. `{{ person.name }}`) -> Person type alias needed, fields must implement the `Display` trait
+- Item properties (e.g. `{{ person.name }}`) -> a `person` type is generated, fields must implement the `Display` trait
 - If helpers (e.g. `{{#if ...}} ... {{/if}}`) -> Fields must be `Option<T>`
 - If/else helpers (e.g. `{{#if ...}} xxx {{ else }} yyy {{/if}}`) -> Fields must be `Option<T>`
-- For loops (e.g. `{{#each items}} ... {{/each}}`) -> Fields must be iterable via the trait `IntoIterator`
+- For loops (e.g. `{{#each items}} ... {{/each}}`) -> an item type is generated, and the list can be anything
+  slice-backed (`Vec<T>`, `&Vec<T>`, `&[T]`, `[T; N]`)
 
+You can override a generated type with your own by naming it in the macro call — `("rows", Vec<crate::Row>)` — which is
+useful for wiring in domain types you already have. It is never required, and it stays in the Rust code rather than the
+template.
 
 ### Development
 

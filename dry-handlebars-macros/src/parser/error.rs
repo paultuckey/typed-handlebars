@@ -56,6 +56,16 @@ impl ParseError {
         }
     }
 
+    /// Creates a parse error that isn't tied to a particular expression
+    ///
+    /// Messages built this way should still read in Handlebars terms — naming the template
+    /// construct rather than anything about the generated Rust.
+    pub(crate) fn general(message: &str) -> Self {
+        Self {
+            message: message.to_string(),
+        }
+    }
+
     /// Creates an error for unclosed blocks
     pub(crate) fn unclosed(preffix: &str) -> Self {
         Self {

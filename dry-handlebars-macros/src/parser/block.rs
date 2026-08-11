@@ -361,10 +361,20 @@ fn check_for_else(src: &str) -> Result<bool> {
     Ok(false)
 }
 
+/// How to walk the subject of an `{{#each}}`.
+#[derive(Clone, Copy)]
+enum Walk {
+    /// A generated list field, bounded by `AsRef<[_]>`.
+    Slice,
+    /// A type the caller declared in Rust; borrow it and let `IntoIterator` do the work, so the
+    /// escape hatch keeps working for maps and anything else that isn't slice-backed.
+    Borrow,
+}
+
 impl Each {
     /// Creates a new each block
     pub fn new<'a>(
-        by_ref: bool,
+        walk: Walk,
         compile: &'a Compile<'a>,
         token: Token<'a>,
         expression: &'a Expression<'a>,
@@ -373,13 +383,7 @@ impl Each {
         let next = match token.next()? {
             Some(next) => next,
             None => {
-                return Err(ParseError::new(
-                    &format!(
-                        "expected variable after {}",
-                        if by_ref { "each_ref" } else { "each" }
-                    ),
-                    expression,
-                ));
+                return Err(ParseError::new("expected variable after each", expression));
             }
         };
         let indexer = check_for_indexer(expression.postfix).map(|found| match found {
@@ -400,10 +404,17 @@ impl Each {
         rust.code.push_str("for ");
         compile.write_local(&mut rust.code, &local);
         rust.code.push_str(" in ");
-        if by_ref {
-            rust.code.push('&');
+        match walk {
+            Walk::Borrow => {
+                rust.code.push('&');
+                compile.write_var(expression, rust, &next)?;
+            }
+            Walk::Slice => {
+                compile.write_var(expression, rust, &next)?;
+                // The field's only `AsRef` bound is the generated one, so this is unambiguous.
+                rust.code.push_str(".as_ref()");
+            }
         }
-        compile.write_var(expression, rust, &next)?;
         rust.code.push('{');
         if has_else {
             rust.code.push_str("empty = false;");
@@ -488,7 +499,25 @@ impl BlockFactory for EachFty {
         expression: &'a Expression<'a>,
         rust: &mut Rust,
     ) -> Result<Box<dyn Block>> {
-        Ok(Box::new(Each::new(true, compile, token, expression, rust)?))
+        // A subject the caller declared a Rust type for keeps `IntoIterator`; everything else is a
+        // generated field, so it is slice-backed.
+        let walk = match token.clone().next()? {
+            Some(subject) if declared_in_rust(compile, subject.value) => Walk::Borrow,
+            _ => Walk::Slice,
+        };
+        Ok(Box::new(Each::new(walk, compile, token, expression, rust)?))
+    }
+}
+
+/// True when the caller declared this variable's type in Rust rather than letting it be generated.
+fn declared_in_rust(compile: &Compile<'_>, var: &str) -> bool {
+    if compile.variable_types.contains_key(var) {
+        return true;
+    }
+    // `{{#each report.rows}}` is the caller's type too when `report` is.
+    match var.split_once('.') {
+        Some((root, _)) => compile.variable_types.contains_key(root),
+        None => false,
     }
 }
 

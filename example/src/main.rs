@@ -19,4 +19,24 @@ fn main() {
 
     let html3 = templates::hello_first_last("King", "Tubby").render();
     println!("{}", html3);
+
+    // todo_list.hbs uses {{#each}}, so the macro generates the item types from the template —
+    // nothing here declares a type or implements a trait.
+    let html4 = templates::todo_list(
+        "Today",
+        vec![
+            templates::todo_list_todos_item::new(
+                1,
+                "Buy milk",
+                templates::todo_list_todos_item_owner::new("King"),
+            ),
+            templates::todo_list_todos_item::new(
+                2,
+                "Write docs",
+                templates::todo_list_todos_item_owner::new("Tubby"),
+            ),
+        ],
+    )
+    .render();
+    println!("{}", html4);
 }

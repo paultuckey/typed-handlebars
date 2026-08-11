@@ -140,8 +140,7 @@ fn invalid_variable_name(src: &str) -> bool {
     if src.starts_with("../") {
         return false; // ../ is valid for relative paths
     }
-    src
-        .chars()
+    src.chars()
         .next()
         .map(|c| !(c.is_alphabetic() || c == '_'))
         .unwrap_or(false)

@@ -1,11 +1,12 @@
+mod codegen;
 mod parser;
 
 use crate::parser::block::add_builtins;
-use crate::parser::compiler::{Compiler, Options, Usage};
+use crate::parser::compiler::{Compiler, Options};
+use crate::parser::context::{self, FieldKind};
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use syn::{LitStr, Token, parse::Parse, parse::ParseStream, parse_macro_input};
@@ -32,79 +33,33 @@ fn generate_code_for_content(
     name: &str,
     content: &str,
     path_for_include: Option<&str>,
-    mut mappings: HashMap<String, syn::Type>,
+    mappings: HashMap<String, syn::Type>,
 ) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
     let struct_name_str = name.replace("-", "_");
     let struct_name = format_ident!("{}", struct_name_str);
 
-    let mut content = content.to_string();
-
     let mut block_map = HashMap::new();
     add_builtins(&mut block_map);
 
-    let temp_options = Options {
-        root_var_name: None,
-        write_var_name: "f",
-        variable_types: HashMap::new(),
-    };
-    let temp_compiler = Compiler::new(temp_options, block_map.clone());
-    let usages = temp_compiler.scan(&content).unwrap_or_default();
+    // The template states its own contract; read it before generating anything.
+    let context = context::build(content).expect("Failed to compile template");
+    let types = codegen::generate(&struct_name_str, &context, &mappings);
 
-    for (name, usage) in &usages {
-        if !mappings.contains_key(name)
-            && let Usage::Boolean = usage
-        {
-            let bool_ty: syn::Type = syn::parse_quote! { bool };
-            mappings.insert(name.clone(), bool_ty);
-        }
-    }
-
-    // Detect variables used in {{#if var}}
-    let re_if = Regex::new(r"\{\{#if\s+([a-zA-Z0-9_]+)\s*\}\}").unwrap();
-    let mut if_vars = HashSet::new();
-    for cap in re_if.captures_iter(&content) {
-        if_vars.insert(cap[1].to_string());
-    }
-
-    // Update mappings for if_vars to be Option<T>
-    for var in &if_vars {
-        if let Some(ty) = mappings.get(var) {
-            // Check if already Option
-            let ty_str = quote! { #ty }.to_string();
-            if !ty_str.contains("Option") && ty_str != "bool" {
-                let new_ty: syn::Type = syn::parse_quote! { Option<#ty> };
-                mappings.insert(var.clone(), new_ty);
-            }
-        }
-    }
-
-    // Flatten nested variables: {{ obj.title }} -> {{ obj_title }}
-    let re_flatten = Regex::new(r"\{\{\s*([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)+)\s*\}\}").unwrap();
-    let mut mapping = HashMap::new();
-    content = re_flatten
-        .replace_all(&content, |caps: &regex::Captures| {
-            let full_match = &caps[0];
-            let var_name = &caps[1];
-
-            let parts: Vec<&str> = var_name.split('.').collect();
-            let root = parts[0];
-            if mappings.contains_key(root) {
-                return full_match.to_string();
-            }
-
-            let new_var_name = var_name.replace(".", "_");
-            mapping.insert(new_var_name.clone(), var_name.to_string());
-            full_match.replace(var_name, &new_var_name)
-        })
-        .to_string();
-
-    // Prepare variable types for Compiler
+    // What the compiler needs to know about types as it emits the render body: the caller's own
+    // types where they supplied them, and `bool` for variables that are only ever tested.
     let mut variable_types = HashMap::new();
-    for (k, v) in &mappings {
-        variable_types.insert(k.clone(), quote! { #v }.to_string());
+    for (name, ty) in &mappings {
+        variable_types.insert(name.clone(), quote! { #ty }.to_string());
+    }
+    for field in &context.fields {
+        if field.used_as_condition
+            && matches!(field.kind, FieldKind::Leaf)
+            && !mappings.contains_key(&field.name)
+        {
+            variable_types.insert(field.name.clone(), "bool".to_string());
+        }
     }
 
-    // Compile template
     let options = Options {
         root_var_name: Some("self"),
         write_var_name: "f",
@@ -112,84 +67,34 @@ fn generate_code_for_content(
     };
     let compiler = Compiler::new(options, block_map);
     let rust_code = compiler
-        .compile(&content)
+        .compile(content)
         .expect("Failed to compile template");
     let render_body: proc_macro2::TokenStream = rust_code
         .code
         .parse()
         .expect("Failed to parse generated code");
 
-    // Extract variables
-    // Use top_level_vars from compiler
-    let mut vars_set = HashSet::new();
-    for var in rust_code.top_level_vars {
-        let root = var.split('.').next().unwrap();
-        vars_set.insert(root.to_string());
-    }
+    let method_name = format_ident!("{}", to_snake_case(&struct_name_str));
 
-    // Also include variables found in {{#if}} that might not be in {{}}
-    for var in if_vars {
-        vars_set.insert(var);
-    }
+    let codegen::Types {
+        nested,
+        params,
+        predicates,
+        declarations,
+        initialisers,
+        names,
+        types: field_types,
+    } = types;
 
-    let mut sorted_vars = Vec::new();
-    let mut seen_roots = HashSet::new();
-
-    // Use usages to determine order
-    for (name, _) in &usages {
-        let root = name.split('.').next().unwrap().to_string();
-        if vars_set.contains(&root) && !seen_roots.contains(&root) {
-            sorted_vars.push(root.clone());
-            seen_roots.insert(root);
-        }
-    }
-
-    // Add any remaining vars
-    let mut remaining_vars: Vec<_> = vars_set
-        .into_iter()
-        .filter(|v| !seen_roots.contains(v))
-        .collect();
-    remaining_vars.sort();
-    sorted_vars.extend(remaining_vars);
-
-    let mut type_params = Vec::new();
-    let mut field_defs = Vec::new();
-    let mut new_args = Vec::new();
-    let mut field_inits = Vec::new();
-    let mut method_args = Vec::new();
-    let mut call_args = Vec::new();
-
-    let mut generic_param_index: usize = 0;
-
-    for v in &sorted_vars {
-        let name = format_ident!("{}", v);
-
-        if let Some(mapped_type) = mappings.get(v) {
-            field_defs.push(quote! { pub #name: #mapped_type });
-            new_args.push(quote! { #name: #mapped_type });
-            field_inits.push(quote! { #name });
-            method_args.push(quote! { #name: #mapped_type });
-            call_args.push(quote! { #name });
-        } else {
-            let t_param = format_ident!("T{}", generic_param_index);
-            generic_param_index += 1;
-
-            type_params.push(t_param.clone());
-
-            field_defs.push(quote! { pub #name: #t_param });
-            new_args.push(quote! { #name: #t_param });
-            field_inits.push(quote! { #name });
-            method_args.push(quote! { #name: #t_param });
-            call_args.push(quote! { #name });
-        }
-    }
-
-    let method_name_str = to_snake_case(&struct_name_str);
-    let method_name = format_ident!("{}", method_name_str);
+    // A list's bound has to be on the declaration as well as the impl, because the field type is
+    // the container rather than the item.
+    let where_clause = codegen::where_clause(&predicates);
 
     let function_def = quote! {
-        pub fn #method_name<#(#type_params: std::fmt::Display),*>(#(#method_args),*) -> #struct_name<#(#type_params),*> {
-            #struct_name::new(#(#call_args),*)
+        pub fn #method_name<#(#params),*>(#(#names: #field_types),*) -> #struct_name<#(#params),*>
+        #where_clause
+        {
+            #struct_name::new(#(#names),*)
         }
     };
 
@@ -206,14 +111,16 @@ fn generate_code_for_content(
     let struct_def = quote! {
         #include_bytes_stmt
 
-        pub struct #struct_name<#(#type_params),*> {
-            #(#field_defs),*
+        #(#nested)*
+
+        pub struct #struct_name<#(#params),*> #where_clause {
+            #(#declarations),*
         }
 
-        impl<#(#type_params: std::fmt::Display),*> #struct_name<#(#type_params),*> {
-            pub fn new(#(#new_args),*) -> Self {
+        impl<#(#params),*> #struct_name<#(#params),*> #where_clause {
+            pub fn new(#(#names: #field_types),*) -> Self {
                 Self {
-                    #(#field_inits),*
+                    #(#initialisers),*
                 }
             }
 
