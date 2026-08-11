@@ -1,6 +1,6 @@
 <h1>{{ list_name }}</h1>
 <ul>
     {{#each todos}}
-        <li id="todo-{{ todo_id }}">{{ title }} — {{ owner.name }}</li>
+        {{> todo_row}}
     {{/each}}
 </ul>

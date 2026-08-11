@@ -84,6 +84,8 @@ Still in alpha stage, only a subset of handlebars functionality is supported. Sp
 - An optional builder per template, with one named setter per variable; anything left unset renders
   empty, the way Handlebars treats an undefined variable
 - Macro for a directory of templates, single file or a string
+- Partials (e.g. `{{> row}}`) -> the partial renders against the context it was included from, and
+  still has its own type for standalone use
 - Simple top level keys (e.g. `{{ todo_id }}`) -> Fields must implement the `Display` trait
 - Item properties (e.g. `{{ person.name }}`) -> a `person` type is generated, fields must implement the `Display` trait
 - If and unless helpers (e.g. `{{#if ...}} ... {{/if}}`) -> Handlebars truthiness: absent, `false`, `""`, `0` and an
@@ -94,6 +96,32 @@ Still in alpha stage, only a subset of handlebars functionality is supported. Sp
 
 Every type is generated from the template — there is no way, and no need, to name a Rust type in the macro call or in
 the `.hbs` file. Fields are generic, so you pass whatever you already have (`&str`, `String`, `u32`, …).
+
+### Partials
+
+`{{> row}}` includes `row.hbs` from the same directory. As in handlebars.js, the partial renders
+against the context it was included from, so this works with no extra wiring:
+
+`templates/row.hbs`:
+
+```handlebars
+<li id="r{{ id }}">{{ name }}</li>
+```
+
+`templates/page.hbs`:
+
+```handlebars
+<ul>{{#each rows}}{{> row}}{{/each}}</ul>
+```
+
+The partial's variables become part of the including template, so `page` asks for rows of `id` and
+`name` — you never name `row.hbs` in Rust. `row.hbs` still gets its own type, so it can be rendered
+on its own too.
+
+Partials are resolved at compile time by splicing, so there is no second `render` call and no
+intermediate `String`. Editing a partial rebuilds every template that includes it. Cycles, unknown
+names and arguments (`{{> row this}}`, not supported yet) are all compile errors. Partials need a
+directory to look in, so they work with `directory!` and `file!` but not `str!`.
 
 ### Escaping
 

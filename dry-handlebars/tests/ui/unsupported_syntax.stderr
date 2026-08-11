@@ -1,4 +1,4 @@
-error: line 1, column 4: partials are not supported yet, so `{{> other}}` cannot be rendered
+error: `{{> other}}` needs a template directory to look in, and this template has none — partials work with `directory!` and `file!`, not `str!`
  --> tests/ui/unsupported_syntax.rs:4:34
   |
 4 |     dry_handlebars::str!("page", "A{{> other}}B");

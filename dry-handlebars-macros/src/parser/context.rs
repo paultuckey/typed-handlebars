@@ -275,19 +275,10 @@ pub fn build(src: &str) -> Result<Context> {
 
 /// Catches Handlebars this crate does not support yet, before it reaches code generation.
 ///
-/// Without this these become Rust syntax errors in generated code — `expected expression, found >`
-/// for a partial — which says nothing to the person who wrote the template.
+/// Without this these become Rust syntax errors in generated code, which say nothing to the person
+/// who wrote the template. Partials are resolved before this point, by
+/// [`crate::assemble`].
 fn reject_unsupported(content: &str, expr: &Expression<'_>) -> Result<()> {
-    if let Some(name) = content.strip_prefix('>') {
-        let name = name.trim().split_whitespace().next().unwrap_or("");
-        return Err(ParseError::new(
-            &format!(
-                "partials are not supported yet, so `{{{{> {}}}}}` cannot be rendered",
-                name
-            ),
-            expr,
-        ));
-    }
     if content == "else if" || content.starts_with("else if ") {
         return Err(ParseError::new(
             "`{{else if}}` is not supported yet — nest an `{{#if}}` inside the `{{else}}` instead",

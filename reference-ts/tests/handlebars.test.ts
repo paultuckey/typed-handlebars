@@ -114,6 +114,23 @@ describe('Handlebars Reference Tests', () => {
         expect(record({ person: { name: "<script>" } })).toBe('&lt;script&gt;');
     });
 
+    // Mirrors `a_partial_renders_against_the_context_it_was_included_from`. A partial rendering
+    // against the surrounding context is the behaviour the Rust side inlines to reproduce.
+    it('a_partial_renders_against_the_context_it_was_included_from', () => {
+        Handlebars.registerPartial('header', '<h1>{{ title }}</h1>');
+        Handlebars.registerPartial('row', '<li id="r{{ id }}">{{ name }}</li>');
+
+        const template = Handlebars.compile('{{> header}}<ul>{{#each rows}}{{> row}}{{/each}}</ul>');
+        const result = template({ title: "Dub", rows: [{ id: 1, name: "King" }, { id: 2, name: "Tubby" }] });
+        expect(result).toBe('<h1>Dub</h1><ul><li id="r1">King</li><li id="r2">Tubby</li></ul>');
+    });
+
+    it('values_written_by_a_partial_are_escaped', () => {
+        Handlebars.registerPartial('row', '<li id="r{{ id }}">{{ name }}</li>');
+        const template = Handlebars.compile('{{> row}}');
+        expect(template({ id: 1, name: "Tom & Jerry" })).toBe('<li id="r1">Tom &amp; Jerry</li>');
+    });
+
     it('it_works', () => {
         const template = Handlebars.compile('Hello {{{name}}}!');
         const result = template({ name: "King" });

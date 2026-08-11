@@ -1,6 +1,8 @@
+mod assemble;
 mod codegen;
 mod parser;
 
+use crate::assemble::Assembly;
 use crate::parser::block::add_builtins;
 use crate::parser::compiler::{Compiler, Options};
 use crate::parser::context;
@@ -30,47 +32,58 @@ fn to_snake_case(s: &str) -> String {
     result
 }
 
-/// Where a template came from, for error messages.
-struct Source<'a> {
-    /// Path to the `.hbs` file, when the template is a file.
-    path: Option<&'a str>,
+/// Shortens a path for display, relative to the crate being built.
+///
+/// Absolute paths to a build directory are noise in an error message; `templates/results.hbs` is
+/// what the developer recognises.
+pub(crate) fn relative(path: &str) -> &str {
+    let Ok(root) = std::env::var("CARGO_MANIFEST_DIR") else {
+        return path;
+    };
+    match path.strip_prefix(root.as_str()) {
+        Some(rest) => match rest.trim_start_matches(['/', '\\']) {
+            "" => path,
+            trimmed => trimmed,
+        },
+        None => path,
+    }
 }
 
 /// Renders a template error the way a Handlebars author needs to read it: their file, their line,
 /// and nothing about Rust.
-fn describe(error: &ParseError, content: &str, source: &Source<'_>) -> String {
-    let mut position = String::new();
-    if let Some(offset) = error.offset_in(content) {
-        let before = &content[..offset];
-        let line = before.matches('\n').count() + 1;
-        let column = before.rsplit('\n').next().map_or(offset, str::len) + 1;
-        position = match source.path {
-            Some(path) => format!("{}:{}:{}: ", path, line, column),
-            None => format!("line {}, column {}: ", line, column),
-        };
-    } else if let Some(path) = source.path {
-        position = format!("{}: ", path);
-    }
+///
+/// The position is mapped back through the assembly, so an error inside a partial names the
+/// partial's own file rather than wherever it happened to be spliced.
+fn describe(error: &ParseError, assembly: &Assembly) -> String {
+    let position = match error
+        .offset_in(&assembly.text)
+        .and_then(|o| assembly.locate(o))
+    {
+        Some(location) => match &location.path {
+            Some(path) => format!("{}:{}:{}: ", relative(path), location.line, location.column),
+            None => format!("line {}, column {}: ", location.line, location.column),
+        },
+        None => match assembly.path() {
+            Some(path) => format!("{}: ", relative(path)),
+            None => String::new(),
+        },
+    };
     format!("{}{}", position, error)
 }
 
 fn generate_code_for_content(
     name: &str,
-    content: &str,
-    path_for_include: Option<&str>,
+    assembly: &Assembly,
 ) -> Result<(proc_macro2::TokenStream, proc_macro2::TokenStream), String> {
+    let content = &assembly.text;
     let struct_name_str = name.replace("-", "_");
     let struct_name = format_ident!("{}", struct_name_str);
 
     let mut block_map = HashMap::new();
     add_builtins(&mut block_map);
 
-    let source = Source {
-        path: path_for_include,
-    };
-
     // The template states its own contract; read it before generating anything.
-    let context = context::build(content).map_err(|e| describe(&e, content, &source))?;
+    let context = context::build(content).map_err(|e| describe(&e, assembly))?;
     let types = codegen::generate(&struct_name_str, &context);
 
     let options = Options {
@@ -80,16 +93,16 @@ fn generate_code_for_content(
     let compiler = Compiler::new(options, block_map);
     let rust_code = compiler
         .compile(content)
-        .map_err(|e| describe(&e, content, &source))?;
+        .map_err(|e| describe(&e, assembly))?;
     let render_body: proc_macro2::TokenStream = rust_code.code.parse().map_err(|_| {
         // Reaching here means the parser accepted something code generation could not express.
         // That is a bug in this crate rather than in the template, so say so.
         format!(
             "{}internal error: dry-handlebars generated invalid Rust for this template. \
              Please report it at https://github.com/paultuckey/dry-handlebars/issues",
-            source
-                .path
-                .map(|path| format!("{}: ", path))
+            assembly
+                .path()
+                .map(|path| format!("{}: ", relative(path)))
                 .unwrap_or_default()
         )
     })?;
@@ -119,14 +132,11 @@ fn generate_code_for_content(
         }
     };
 
-    let include_bytes_stmt = if let Some(path_str) = path_for_include {
-        quote! {
-            // ensure the compiler is aware the output is linked to the source so that any changes
-            // to the hbs file will trigger a recompilation
-            const _: &[u8] = include_bytes!(#path_str);
-        }
-    } else {
-        quote! {}
+    // Every file that went into this template, partials included, so editing any of them triggers
+    // a rebuild of the code generated from it.
+    let includes = &assembly.includes;
+    let include_bytes_stmt = quote! {
+        #(const _: &[u8] = include_bytes!(#includes);)*
     };
 
     let struct_def = quote! {
@@ -165,15 +175,18 @@ fn generate_code_for_content(
 
 fn generate_code_for_file(
     path: &Path,
+    partials: &Path,
 ) -> Result<(proc_macro2::TokenStream, proc_macro2::TokenStream), String> {
     let path_str = path.to_string_lossy();
     let file_stem = match path.file_stem() {
         Some(stem) => stem.to_string_lossy(),
         None => return Err(format!("{}: not a usable template file name", path_str)),
     };
-    let content =
-        fs::read_to_string(path).map_err(|e| format!("{}: could not be read: {}", path_str, e))?;
-    generate_code_for_content(&file_stem, &content, Some(&path_str))
+    let content = fs::read_to_string(path)
+        .map_err(|e| format!("{}: could not be read: {}", relative(&path_str), e))?;
+    let assembly = Assembly::build(&content, Some(&path_str), Some(partials))
+        .map_err(|e| format!("{}: {}", relative(&path_str), e))?;
+    generate_code_for_content(&file_stem, &assembly)
 }
 
 struct StrInput {
@@ -225,7 +238,7 @@ pub fn dry_handlebars_directory(input: TokenStream) -> TokenStream {
         if path.is_file() && path.extension().is_some_and(|ext| ext == "hbs") {
             // One broken template reports itself and the rest still compile, so a single typo
             // doesn't bury the whole directory in errors.
-            match generate_code_for_file(path) {
+            match generate_code_for_file(path, &root_path) {
                 Ok((struct_def, function_def)) => {
                     structs.push(struct_def);
                     functions.push(function_def);
@@ -260,7 +273,8 @@ pub fn dry_handlebars_file(input: TokenStream) -> TokenStream {
             .into();
     }
 
-    let (struct_def, function_def) = match generate_code_for_file(&path) {
+    let partials = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+    let (struct_def, function_def) = match generate_code_for_file(&path, &partials) {
         Ok(generated) => generated,
         Err(message) => {
             return syn::Error::new(file_lit.span(), message)
@@ -280,15 +294,17 @@ pub fn dry_handlebars_file(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn dry_handlebars_str(input: TokenStream) -> TokenStream {
     let StrInput { name, content } = parse_macro_input!(input as StrInput);
-    let (struct_def, function_def) =
-        match generate_code_for_content(&name.value(), &content.value(), None) {
-            Ok(generated) => generated,
-            Err(message) => {
-                return syn::Error::new(content.span(), message)
-                    .to_compile_error()
-                    .into();
-            }
-        };
+    // A `str!` template has no directory, so it has nowhere to resolve partials from.
+    let assembled = Assembly::build(&content.value(), None, None)
+        .and_then(|assembly| generate_code_for_content(&name.value(), &assembly));
+    let (struct_def, function_def) = match assembled {
+        Ok(generated) => generated,
+        Err(message) => {
+            return syn::Error::new(content.span(), message)
+                .to_compile_error()
+                .into();
+        }
+    };
 
     let expanded = quote! {
         #struct_def
