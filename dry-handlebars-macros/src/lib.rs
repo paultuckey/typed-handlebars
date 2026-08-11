@@ -3,7 +3,7 @@ mod parser;
 
 use crate::parser::block::add_builtins;
 use crate::parser::compiler::{Compiler, Options};
-use crate::parser::context::{self, FieldKind};
+use crate::parser::context;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use std::collections::HashMap;
@@ -33,7 +33,6 @@ fn generate_code_for_content(
     name: &str,
     content: &str,
     path_for_include: Option<&str>,
-    mappings: HashMap<String, syn::Type>,
 ) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
     let struct_name_str = name.replace("-", "_");
     let struct_name = format_ident!("{}", struct_name_str);
@@ -43,27 +42,11 @@ fn generate_code_for_content(
 
     // The template states its own contract; read it before generating anything.
     let context = context::build(content).expect("Failed to compile template");
-    let types = codegen::generate(&struct_name_str, &context, &mappings);
-
-    // What the compiler needs to know about types as it emits the render body: the caller's own
-    // types where they supplied them, and `bool` for variables that are only ever tested.
-    let mut variable_types = HashMap::new();
-    for (name, ty) in &mappings {
-        variable_types.insert(name.clone(), quote! { #ty }.to_string());
-    }
-    for field in &context.fields {
-        if field.used_as_condition
-            && matches!(field.kind, FieldKind::Leaf)
-            && !mappings.contains_key(&field.name)
-        {
-            variable_types.insert(field.name.clone(), "bool".to_string());
-        }
-    }
+    let types = codegen::generate(&struct_name_str, &context);
 
     let options = Options {
         root_var_name: Some("self"),
         write_var_name: "f",
-        variable_types,
     };
     let compiler = Compiler::new(options, block_map);
     let rust_code = compiler
@@ -147,13 +130,12 @@ fn generate_code_for_file(path: &Path) -> (proc_macro2::TokenStream, proc_macro2
     let file_stem = path.file_stem().unwrap().to_string_lossy();
     let path_str = path.to_string_lossy();
     let content = fs::read_to_string(path).expect("Failed to read file");
-    generate_code_for_content(&file_stem, &content, Some(&path_str), HashMap::new())
+    generate_code_for_content(&file_stem, &content, Some(&path_str))
 }
 
 struct StrInput {
     name: LitStr,
     content: LitStr,
-    mappings: Vec<(String, syn::Type)>,
 }
 
 impl Parse for StrInput {
@@ -161,28 +143,11 @@ impl Parse for StrInput {
         let name: LitStr = input.parse()?;
         input.parse::<Token![,]>()?;
         let content: LitStr = input.parse()?;
-
-        let mut mappings = Vec::new();
+        // A trailing comma is allowed, so the template can sit on its own line.
         if input.peek(Token![,]) {
             input.parse::<Token![,]>()?;
-            while !input.is_empty() {
-                let content;
-                syn::parenthesized!(content in input);
-                let key: LitStr = content.parse()?;
-                content.parse::<Token![,]>()?;
-                let ty: syn::Type = content.parse()?;
-                mappings.push((key.value(), ty));
-
-                if input.peek(Token![,]) {
-                    input.parse::<Token![,]>()?;
-                }
-            }
         }
-        Ok(StrInput {
-            name,
-            content,
-            mappings,
-        })
+        Ok(StrInput { name, content })
     }
 }
 
@@ -254,14 +219,9 @@ pub fn dry_handlebars_file(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn dry_handlebars_str(input: TokenStream) -> TokenStream {
-    let StrInput {
-        name,
-        content,
-        mappings,
-    } = parse_macro_input!(input as StrInput);
-    let mappings_map: HashMap<String, syn::Type> = mappings.into_iter().collect();
+    let StrInput { name, content } = parse_macro_input!(input as StrInput);
     let (struct_def, function_def) =
-        generate_code_for_content(&name.value(), &content.value(), None, mappings_map);
+        generate_code_for_content(&name.value(), &content.value(), None);
 
     let expanded = quote! {
         #struct_def

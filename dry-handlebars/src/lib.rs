@@ -25,6 +25,88 @@ impl<T> AsRef<[T]> for Empty {
     }
 }
 
+/// Whether a value counts as true in `{{#if}}` and `{{#unless}}`.
+///
+/// This follows handlebars.js: absent, `false`, an empty string, zero and an empty list are all
+/// falsy; everything else is truthy. Every type you would reasonably pass already implements it —
+/// there is nothing here for you to write.
+pub trait Truthy {
+    /// Whether `{{#if}}` should render its block for this value.
+    fn is_truthy(&self) -> bool;
+}
+
+impl Truthy for bool {
+    fn is_truthy(&self) -> bool {
+        *self
+    }
+}
+
+/// A variable that was never set is absent, and absent is falsy.
+impl Truthy for Empty {
+    fn is_truthy(&self) -> bool {
+        false
+    }
+}
+
+impl Truthy for str {
+    fn is_truthy(&self) -> bool {
+        !self.is_empty()
+    }
+}
+
+impl Truthy for String {
+    fn is_truthy(&self) -> bool {
+        !self.is_empty()
+    }
+}
+
+/// `None` is absent; `Some` is present whatever it wraps, as in handlebars.js.
+impl<T> Truthy for Option<T> {
+    fn is_truthy(&self) -> bool {
+        self.is_some()
+    }
+}
+
+impl<T> Truthy for [T] {
+    fn is_truthy(&self) -> bool {
+        !self.is_empty()
+    }
+}
+
+impl<T, const N: usize> Truthy for [T; N] {
+    fn is_truthy(&self) -> bool {
+        N != 0
+    }
+}
+
+impl<T> Truthy for Vec<T> {
+    fn is_truthy(&self) -> bool {
+        !self.is_empty()
+    }
+}
+
+impl<T: Truthy + ?Sized> Truthy for &T {
+    fn is_truthy(&self) -> bool {
+        (**self).is_truthy()
+    }
+}
+
+macro_rules! truthy_if_nonzero {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl Truthy for $ty {
+                fn is_truthy(&self) -> bool {
+                    *self != 0 as $ty
+                }
+            }
+        )*
+    };
+}
+
+truthy_if_nonzero!(
+    i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, f32, f64
+);
+
 /// A value a builder has been given.
 ///
 /// Generated code uses this; you should never need to name it.
@@ -32,16 +114,10 @@ pub struct Set<T>(pub T);
 
 /// Supplies the value held in a builder slot.
 ///
-/// Every generated builder starts with each slot held by a `<template>_unset_<variable>` marker.
-/// Markers for variables whose types the macro generated resolve to [`Empty`], which is why a
-/// builder need not set everything. A variable whose type *you* declared in Rust has no empty to
-/// fall back on, so its marker implements nothing and leaving it out is a compile error.
-#[diagnostic::on_unimplemented(
-    message = "template variable `{Self}` must be set",
-    label = "this variable was never set",
-    note = "variables the macro types itself fall back to empty; ones declared in Rust with \
-            (\"name\", Type) have no empty to fall back on, so they have to be set"
-)]
+/// Every generated builder starts with each slot held by a `<template>_unset_<variable>` marker,
+/// which resolves to whatever absent means for that variable — nothing to display, a list with no
+/// items, a false condition. Setting a variable swaps the slot for [`Set`]. Nothing here needs
+/// naming from outside generated code.
 pub trait IsSet {
     /// The type of the value in this slot.
     type Value;
@@ -72,31 +148,19 @@ mod tests {
         );
     }
 
-    struct Person {
-        firstname: String,
-        lastname: String,
-    }
-
     #[test]
     fn path_expressions() {
         mod template {
             crate::str!(
                 "test",
                 //language=handlebars
-                r#"{{person.firstname}} {{person.lastname}}"#,
-                ("person", super::Person)
+                r#"{{person.firstname}} {{person.lastname}}"#
             );
         }
-        let person = Person {
-            firstname: "King".to_string(),
-            lastname: "Tubby".to_string(),
-        };
-        assert_eq!(template::test(person).render(), "King Tubby");
-    }
-
-    struct Author {
-        first_name: String,
-        last_name: String,
+        assert_eq!(
+            template::test(template::test_person::new("King", "Tubby")).render(),
+            "King Tubby"
+        );
     }
 
     #[test]
@@ -117,6 +181,71 @@ mod tests {
             template::test(false, "King", "Tubby").render(),
             //language=html
             "<div></div>"
+        );
+    }
+
+    /// The idiom that could not be expressed at all before: test a variable and then print it.
+    /// Testing one no longer forces it to be a `bool`.
+    #[test]
+    fn a_variable_can_be_tested_and_printed() {
+        mod template {
+            crate::str!("test", r#"[{{#if title}}{{title}}{{/if}}]"#);
+        }
+        assert_eq!(template::test(String::from("Dub")).render(), "[Dub]");
+        assert_eq!(template::test(String::new()).render(), "[]");
+        assert_eq!(template::test("Dub").render(), "[Dub]");
+        assert_eq!(template::test("").render(), "[]");
+        assert_eq!(template::test(7).render(), "[7]");
+        assert_eq!(template::test(0).render(), "[]");
+        assert_eq!(template::test(true).render(), "[true]");
+        assert_eq!(template::test(false).render(), "[]");
+    }
+
+    /// What counts as falsy, following handlebars.js. Mirrored in `reference-ts`.
+    #[test]
+    fn falsiness_follows_handlebars() {
+        mod template {
+            crate::str!("test", r#"[{{#if value}}yes{{/if}}]"#);
+        }
+        // Absent and false.
+        assert_eq!(template::test_builder::new().render(), "[]");
+        assert_eq!(template::test(false).render(), "[]");
+        assert_eq!(template::test(true).render(), "[yes]");
+        // Empty string and zero.
+        assert_eq!(template::test("").render(), "[]");
+        assert_eq!(template::test("x").render(), "[yes]");
+        assert_eq!(template::test(0).render(), "[]");
+        assert_eq!(template::test(-1).render(), "[yes]");
+        // Option is present or not, whatever it wraps.
+        assert_eq!(template::test(None::<&str>).render(), "[]");
+        assert_eq!(template::test(Some("")).render(), "[yes]");
+        // A list is falsy when it has no items.
+        assert_eq!(template::test(Vec::<u8>::new()).render(), "[]");
+        assert_eq!(template::test(vec![1]).render(), "[yes]");
+        // …including through a reference.
+        let rows = vec![1];
+        assert_eq!(template::test(&rows).render(), "[yes]");
+    }
+
+    /// A list can be tested and then walked — the same variable serving both.
+    #[test]
+    fn a_list_can_be_tested_and_iterated() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#if rows}}<ul>{{#each rows}}<li>{{name}}</li>{{/each}}</ul>{{/if}}"#
+            );
+        }
+        assert_eq!(
+            template::test(vec![template::test_rows_item::new("King")]).render(),
+            //language=html
+            "<ul><li>King</li></ul>"
+        );
+        assert_eq!(
+            template::test_builder::new().render(),
+            "",
+            "no rows, no list"
         );
     }
 
@@ -147,8 +276,7 @@ mod tests {
             crate::str!(
                 "test",
                 //language=handlebars
-                r#"<div>{{#if has_author}}<h1>{{first_name}}</h1>{{else}}<h1>Unknown</h1>{{/if}}</div>"#,
-                ("author", Option<super::Author>)
+                r#"<div>{{#if has_author}}<h1>{{first_name}}</h1>{{else}}<h1>Unknown</h1>{{/if}}</div>"#
             );
         }
         assert_eq!(
@@ -164,49 +292,38 @@ mod tests {
     }
 
     #[test]
-    fn with_helper_option() {
-        mod template {
-            crate::str!(
-                "test",
-                //language=handlebars
-                r#"<div>{{#with author}}<h1>{{first_name}} {{last_name}}</h1>{{/with}}</div>"#,
-                ("author", Option<super::Author>)
-            );
-        }
-        let author = Author {
-            first_name: "King".to_string(),
-            last_name: "Tubby".to_string(),
-        };
-        assert_eq!(
-            template::test(Some(author)).render(),
-            //language=html
-            "<div><h1>King Tubby</h1></div>"
-        );
-        assert_eq!(
-            template::test(None).render(),
-            //language=html
-            "<div></div>"
-        );
-    }
-
-    #[test]
     fn with_helper() {
         mod template {
             crate::str!(
                 "test",
                 //language=handlebars
-                r#"<div>{{#with author}}<h1>{{first_name}} {{last_name}}</h1>{{/with}}</div>"#,
-                ("author", super::Author)
+                r#"<div>{{#with author}}<h1>{{first_name}} {{last_name}}</h1>{{/with}}</div>"#
             );
         }
-        let author = Author {
-            first_name: "King".to_string(),
-            last_name: "Tubby".to_string(),
-        };
         assert_eq!(
-            template::test(author).render(),
+            template::test(template::test_author::new("King", "Tubby")).render(),
             //language=html
             "<div><h1>King Tubby</h1></div>"
+        );
+    }
+
+    /// Pins the one place this parts company with handlebars.js, so the divergence is visible
+    /// rather than folklore: handlebars.js skips a `{{#with}}` block whose subject is undefined,
+    /// but an unset record here is a record of empties, so the block still renders.
+    #[test]
+    fn with_renders_even_when_the_record_was_never_set() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"<div>{{#with author}}<h1>{{first_name}}</h1>{{/with}}</div>"#
+            );
+        }
+        assert_eq!(
+            template::test_builder::new().render(),
+            //language=html
+            "<div><h1></h1></div>",
+            "handlebars.js would render <div></div> here"
         );
     }
 
@@ -216,16 +333,11 @@ mod tests {
             crate::str!(
                 "test",
                 //language=handlebars
-                r#"<div>{{#each authors}}<p>Hello {{first_name}}</p>{{/each}}</div>"#,
-                ("authors", Vec<super::Author>)
+                r#"<div>{{#each authors}}<p>Hello {{first_name}}</p>{{/each}}</div>"#
             );
         }
-        let author = Author {
-            first_name: "King".to_string(),
-            last_name: "Tubby".to_string(),
-        };
         assert_eq!(
-            template::test(vec![author]).render(),
+            template::test(vec![template::test_authors_item::new("King")]).render(),
             //language=html
             "<div><p>Hello King</p></div>"
         );
@@ -480,28 +592,6 @@ mod tests {
         assert_eq!(template::test(array).render(), "<li>King</li>");
     }
 
-    /// A declared type keeps `IntoIterator`, so the escape hatch still covers containers that
-    /// aren't slice-backed.
-    #[test]
-    fn a_declared_list_type_need_not_be_slice_backed() {
-        use std::collections::VecDeque;
-
-        mod template {
-            crate::str!(
-                "test",
-                //language=handlebars
-                r#"{{#each authors}}<p>{{first_name}}</p>{{/each}}"#,
-                ("authors", std::collections::VecDeque<super::Author>)
-            );
-        }
-        let mut authors = VecDeque::new();
-        authors.push_back(Author {
-            first_name: "King".to_string(),
-            last_name: "Tubby".to_string(),
-        });
-        assert_eq!(template::test(authors).render(), "<p>King</p>");
-    }
-
     /// Rendering borrows rather than consumes, so a template may walk the same list twice.
     #[test]
     fn the_same_list_can_be_iterated_twice() {
@@ -519,29 +609,6 @@ mod tests {
         assert_eq!(page.render(), "ab|ab");
         // …and the value is still usable afterwards.
         assert_eq!(page.render(), "ab|ab");
-    }
-
-    /// A type declared in Rust wins over the generated one, so existing domain types wire straight
-    /// in — the fields just have to line up with what the template asks for.
-    #[test]
-    fn a_declared_type_replaces_the_generated_one() {
-        mod template {
-            crate::str!(
-                "test",
-                //language=handlebars
-                r#"{{#each authors}}<p>{{first_name}}</p>{{/each}}"#,
-                ("authors", Vec<super::Author>)
-            );
-        }
-        assert_eq!(
-            template::test(vec![Author {
-                first_name: "King".to_string(),
-                last_name: "Tubby".to_string(),
-            }])
-            .render(),
-            //language=html
-            "<p>King</p>"
-        );
     }
 
     #[test]

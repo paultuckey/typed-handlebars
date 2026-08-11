@@ -104,9 +104,12 @@ impl IfOrUnless {
     ) -> Result<IfOrUnless> {
         match token.next()? {
             Some(var) => {
+                // Handlebars truthiness, not a bare `if`: absent, false, "", 0 and an empty list
+                // are all falsy, so `{{#if title}}{{title}}{{/if}}` works on the string it prints.
                 rust.code.push_str(prefix);
+                rust.code.push_str("::dry_handlebars::Truthy::is_truthy(&");
                 compile.write_var(expression, rust, &var)?;
-                rust.code.push('{');
+                rust.code.push_str("){");
                 Ok(Self {})
             }
             None => Err(ParseError::new(
@@ -158,55 +161,6 @@ impl BlockFactory for UnlessFty {
         Ok(Box::new(IfOrUnless::new(
             "unless", "if !", compile, token, expression, rust,
         )?))
-    }
-}
-
-/// Handles if_some block compilation
-struct IfSome {
-    local: Local,
-}
-
-impl IfSome {
-    /// Creates a new if_some block
-    fn new<'a>(
-        by_ref: bool,
-        compile: &'a Compile<'a>,
-        token: Token<'a>,
-        expression: &'a Expression<'a>,
-        rust: &mut Rust,
-    ) -> Result<Self> {
-        let next = token.next()?.ok_or_else(|| {
-            ParseError::new(
-                &format!(
-                    "expected variable after if_some{}",
-                    if by_ref { "_ref" } else { "" }
-                ),
-                expression,
-            )
-        })?;
-        let local = read_local(&next, expression)?;
-        rust.code.push_str("if let Some(");
-        compile.write_local(&mut rust.code, &local);
-        rust.code.push_str(") = ");
-        if by_ref {
-            rust.code.push('&');
-        }
-        compile.write_var(expression, rust, &next)?;
-        rust.code.push('{');
-        Ok(Self { local })
-    }
-}
-
-impl Block for IfSome {
-    /// Handles else block compilation
-    fn handle_else<'a>(&self, _expression: &'a Expression<'a>, rust: &mut Rust) -> Result<()> {
-        rust.code.push_str("}else{");
-        Ok(())
-    }
-
-    /// Returns the local variable
-    fn local<'a>(&self) -> &Local {
-        &self.local
     }
 }
 
@@ -265,17 +219,6 @@ impl BlockFactory for WithFty {
         expression: &'a Expression<'a>,
         rust: &mut Rust,
     ) -> Result<Box<dyn Block>> {
-        let token_clone = token.clone();
-        if let Some(var) = token_clone.next()? {
-            let var_name = var.value;
-            if let Some(type_str) = compile.variable_types.get(var_name)
-                && type_str.contains("Option")
-            {
-                return Ok(Box::new(IfSome::new(
-                    true, compile, token, expression, rust,
-                )?));
-            }
-        }
         Ok(Box::new(With::new(true, compile, token, expression, rust)?))
     }
 }
@@ -361,20 +304,9 @@ fn check_for_else(src: &str) -> Result<bool> {
     Ok(false)
 }
 
-/// How to walk the subject of an `{{#each}}`.
-#[derive(Clone, Copy)]
-enum Walk {
-    /// A generated list field, bounded by `AsRef<[_]>`.
-    Slice,
-    /// A type the caller declared in Rust; borrow it and let `IntoIterator` do the work, so the
-    /// escape hatch keeps working for maps and anything else that isn't slice-backed.
-    Borrow,
-}
-
 impl Each {
     /// Creates a new each block
     pub fn new<'a>(
-        walk: Walk,
         compile: &'a Compile<'a>,
         token: Token<'a>,
         expression: &'a Expression<'a>,
@@ -404,17 +336,9 @@ impl Each {
         rust.code.push_str("for ");
         compile.write_local(&mut rust.code, &local);
         rust.code.push_str(" in ");
-        match walk {
-            Walk::Borrow => {
-                rust.code.push('&');
-                compile.write_var(expression, rust, &next)?;
-            }
-            Walk::Slice => {
-                compile.write_var(expression, rust, &next)?;
-                // The field's only `AsRef` bound is the generated one, so this is unambiguous.
-                rust.code.push_str(".as_ref()");
-            }
-        }
+        compile.write_var(expression, rust, &next)?;
+        // The field's only `AsRef` bound is the generated one, so this is unambiguous.
+        rust.code.push_str(".as_ref()");
         rust.code.push('{');
         if has_else {
             rust.code.push_str("empty = false;");
@@ -499,25 +423,7 @@ impl BlockFactory for EachFty {
         expression: &'a Expression<'a>,
         rust: &mut Rust,
     ) -> Result<Box<dyn Block>> {
-        // A subject the caller declared a Rust type for keeps `IntoIterator`; everything else is a
-        // generated field, so it is slice-backed.
-        let walk = match token.clone().next()? {
-            Some(subject) if declared_in_rust(compile, subject.value) => Walk::Borrow,
-            _ => Walk::Slice,
-        };
-        Ok(Box::new(Each::new(walk, compile, token, expression, rust)?))
-    }
-}
-
-/// True when the caller declared this variable's type in Rust rather than letting it be generated.
-fn declared_in_rust(compile: &Compile<'_>, var: &str) -> bool {
-    if compile.variable_types.contains_key(var) {
-        return true;
-    }
-    // `{{#each report.rows}}` is the caller's type too when `report` is.
-    match var.split_once('.') {
-        Some((root, _)) => compile.variable_types.contains_key(root),
-        None => false,
+        Ok(Box::new(Each::new(compile, token, expression, rust)?))
     }
 }
 

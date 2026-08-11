@@ -73,8 +73,6 @@ condition, exactly as an undefined variable does in Handlebars:
 templates::button_builder::new().btn_id(42).render()   // btn_name renders as nothing
 ```
 
-The one exception is a variable whose type you declared in Rust yourself (see below) — there is no
-empty we can invent for someone else's type, so that one has to be set.
 
 ## Features
 
@@ -87,12 +85,17 @@ Still in alpha stage, only a subset of handlebars functionality is supported. Sp
 - Macro for a directory of templates, single file or a string
 - Simple top level keys (e.g. `{{ todo_id }}`) -> Fields must implement the `Display` trait
 - Item properties (e.g. `{{ person.name }}`) -> a `person` type is generated, fields must implement the `Display` trait
-- If helpers (e.g. `{{#if ...}} ... {{/if}}`) -> Fields must be `Option<T>`
-- If/else helpers (e.g. `{{#if ...}} xxx {{ else }} yyy {{/if}}`) -> Fields must be `Option<T>`
+- If and unless helpers (e.g. `{{#if ...}} ... {{/if}}`) -> Handlebars truthiness: absent, `false`, `""`, `0` and an
+  empty list are falsy. Testing a variable does not stop you printing it, so `{{#if title}}{{title}}{{/if}}` works
+- If/else helpers (e.g. `{{#if ...}} xxx {{ else }} yyy {{/if}}`)
 - For loops (e.g. `{{#each items}} ... {{/each}}`) -> an item type is generated, and the list can be anything
   slice-backed (`Vec<T>`, `&Vec<T>`, `&[T]`, `[T; N]`)
 
-You can override a generated type with your own by naming it in the macro call — `("rows", Vec<crate::Row>)` — which is
-useful for wiring in domain types you already have. It is never required, and it stays in the Rust code rather than the
-template.
+Every type is generated from the template — there is no way, and no need, to name a Rust type in the macro call or in
+the `.hbs` file. Fields are generic, so you pass whatever you already have (`&str`, `String`, `u32`, …).
+
+### Known divergence from handlebars.js
+
+`{{#with person}}` renders its block even when `person` was never set, showing empty fields, where handlebars.js would
+skip the block. `{{#if}}` and `{{#unless}}` are unaffected — an absent variable is correctly falsy there.
 

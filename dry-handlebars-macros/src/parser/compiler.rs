@@ -122,7 +122,6 @@
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
-    fmt::{Display, Write},
 };
 
 use regex::{Captures, Regex};
@@ -132,12 +131,6 @@ use crate::parser::{
     expression::{Expression, ExpressionType},
     expression_tokenizer::{Token, TokenType},
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Usage {
-    Display,
-    Boolean,
-}
 
 /// Local variable declaration in a block
 pub enum Local {
@@ -181,39 +174,6 @@ pub static USE_AS_DISPLAY: &str = "Display";
 /// Trait for raw HTML output
 pub static USE_AS_DISPLAY_HTML: &str = "Display";
 
-/// Helper for formatting use statements
-pub struct Uses<'a> {
-    uses: &'a HashSet<String>,
-    crate_name: &'a str,
-}
-
-impl<'a> Display for Uses<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.uses.len() {
-            0 => (),
-            1 => write!(
-                f,
-                "use {}::{}",
-                self.crate_name,
-                self.uses.iter().next().unwrap()
-            )?,
-            _ => {
-                f.write_str("use ")?;
-                f.write_str(self.crate_name)?;
-                f.write_str("::")?;
-                let mut glue = '{';
-                for use_ in self.uses {
-                    f.write_char(glue)?;
-                    f.write_str(use_)?;
-                    glue = ',';
-                }
-                f.write_str("}")?;
-            }
-        }
-        Ok(())
-    }
-}
-
 impl Rust {
     /// Creates a new Rust code generator
     pub fn new() -> Self {
@@ -221,14 +181,6 @@ impl Rust {
             using: HashSet::new(),
             code: String::new(),
             top_level_vars: HashSet::new(),
-        }
-    }
-
-    /// Returns a formatter for use statements
-    pub fn uses<'a>(&'a self, crate_name: &'a str) -> Uses<'a> {
-        Uses {
-            uses: &self.using,
-            crate_name,
         }
     }
 }
@@ -291,8 +243,6 @@ pub struct Compile<'a> {
     pub open_stack: Vec<Scope>,
     /// Map of block helpers
     pub block_map: &'a BlockMap,
-    /// Types of variables
-    pub variable_types: &'a HashMap<String, String>,
 }
 
 /// Appends a depth suffix to a variable name
@@ -315,18 +265,13 @@ impl<'a> Block for Root<'a> {
 
 impl<'a> Compile<'a> {
     /// Creates a new compiler
-    fn new(
-        this: Option<&'static str>,
-        block_map: &'a BlockMap,
-        variable_types: &'a HashMap<String, String>,
-    ) -> Self {
+    fn new(this: Option<&'static str>, block_map: &'a BlockMap) -> Self {
         Self {
             open_stack: vec![Scope {
                 depth: 0,
                 opened: Box::new(Root { this }),
             }],
             block_map,
-            variable_types,
         }
     }
 
@@ -583,8 +528,6 @@ pub struct Options {
     pub root_var_name: Option<&'static str>,
     /// Name of the write function
     pub write_var_name: &'static str,
-    /// Types of variables
-    pub variable_types: HashMap<String, String>,
 }
 
 /// Main compiler implementation
@@ -614,87 +557,6 @@ impl Compiler {
                 "{" | "}" => format!("{}{}", &captures[0], &captures[0]),
                 _ => format!("\\{}", &captures[0]),
             })
-    }
-
-    fn scan_token<'a>(
-        &self,
-        token: &Token<'a>,
-        usages: &mut Vec<(String, Usage)>,
-        seen: &mut HashSet<String>,
-        usage: Usage,
-    ) -> Result<()> {
-        match token.token_type {
-            TokenType::Variable => {
-                let name = token.value.to_string();
-                if seen.contains(&name) {
-                    if let Some((_, existing_usage)) = usages.iter_mut().find(|(n, _)| *n == name) {
-                        if *existing_usage == Usage::Display && usage == Usage::Boolean {
-                            *existing_usage = Usage::Boolean;
-                        }
-                    }
-                } else {
-                    seen.insert(name.clone());
-                    usages.push((name, usage));
-                }
-            }
-            TokenType::SubExpression(_) => {
-                if let Some(sub_token) = Token::first(token.value)? {
-                    if let Some(arg) = sub_token.next()? {
-                        self.scan_token(&arg, usages, seen, Usage::Display)?;
-                        let mut current = arg;
-                        while let Some(next_arg) = current.next()? {
-                            self.scan_token(&next_arg, usages, seen, Usage::Display)?;
-                            current = next_arg;
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    pub fn scan(&self, src: &str) -> Result<Vec<(String, Usage)>> {
-        let mut usages = Vec::new();
-        let mut seen = HashSet::new();
-        let mut expression = Expression::from(src)?;
-        while let Some(expr) = expression {
-            match expr.expression_type {
-                ExpressionType::Raw | ExpressionType::HtmlEscaped => {
-                    if expr.content != "else" {
-                        if let Some(token) = Token::first(expr.content)? {
-                            self.scan_token(&token, &mut usages, &mut seen, Usage::Display)?;
-                            let mut current = token;
-                            while let Some(arg) = current.next()? {
-                                self.scan_token(&arg, &mut usages, &mut seen, Usage::Display)?;
-                                current = arg;
-                            }
-                        }
-                    }
-                }
-                ExpressionType::Open => {
-                    if let Some(token) = Token::first(expr.content)? {
-                        let usage = if token.value == "if" || token.value == "unless" {
-                            Usage::Boolean
-                        } else {
-                            Usage::Display
-                        };
-
-                        if let Some(arg) = token.next()? {
-                            self.scan_token(&arg, &mut usages, &mut seen, usage)?;
-                            let mut current = arg;
-                            while let Some(next_arg) = current.next()? {
-                                self.scan_token(&next_arg, &mut usages, &mut seen, Usage::Display)?;
-                                current = next_arg;
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-            expression = expr.next()?;
-        }
-        Ok(usages)
     }
 
     /// Commits pending writes
@@ -793,18 +655,7 @@ impl Compiler {
 
     /// Compiles a template
     pub fn compile(&self, src: &str) -> Result<Rust> {
-        let usages = self.scan(src)?;
-        let mut variable_types = self.options.variable_types.clone();
-        for (name, usage) in usages {
-            if !variable_types.contains_key(&name)
-                && let Usage::Boolean = usage
-            {
-                variable_types.insert(name, "bool".to_string());
-            }
-        }
-
-        let mut compile =
-            Compile::new(self.options.root_var_name, &self.block_map, &variable_types);
+        let mut compile = Compile::new(self.options.root_var_name, &self.block_map);
         let mut rust = Rust::new();
         let mut pending: Vec<PendingWrite> = Vec::new();
         let mut rest = src;
