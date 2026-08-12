@@ -63,7 +63,7 @@
 //! assert_eq!(token.token_type, TokenType::Literal);
 //! ```
 
-use crate::parser::error::{ParseError, Result, rcap};
+use crate::parser::error::{ParseError, Result};
 
 /// Types of tokens that can be parsed from an expression
 #[derive(Clone)]
@@ -102,9 +102,7 @@ fn find_closing(src: &str) -> Result<usize> {
             return Ok(i + 1);
         }
     }
-    Err(ParseError {
-        message: format!("unmatched brackets near {}", rcap(src)),
-    })
+    Err(ParseError::general("unmatched brackets").or_at(src))
 }
 
 fn find_end_of_string(src: &str) -> Result<usize> {
@@ -121,9 +119,7 @@ fn find_end_of_string(src: &str) -> Result<usize> {
             _ => (),
         }
     }
-    Err(ParseError {
-        message: format!("unterminated string near {}", rcap(src)),
-    })
+    Err(ParseError::general("unterminated string").or_at(src))
 }
 
 /// Finds the end of a token by looking for whitespace or special characters
@@ -140,10 +136,11 @@ fn invalid_variable_name(src: &str) -> bool {
     if src.starts_with("../") {
         return false; // ../ is valid for relative paths
     }
-    src
-        .chars()
+    // A digit may start a name: handlebars.js reads `{{2nd}}` as a variable, and a designer has no
+    // reason to know that Rust would not. Code generation renames it to something Rust accepts.
+    src.chars()
         .next()
-        .map(|c| !(c.is_alphabetic() || c == '_'))
+        .map(|c| !(c.is_alphanumeric() || c == '_'))
         .unwrap_or(false)
 }
 

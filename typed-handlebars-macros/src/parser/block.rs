@@ -104,9 +104,13 @@ impl IfOrUnless {
     ) -> Result<IfOrUnless> {
         match token.next()? {
             Some(var) => {
+                // Handlebars truthiness, not a bare `if`: absent, false, "", 0 and an empty list
+                // are all falsy, so `{{#if title}}{{title}}{{/if}}` works on the string it prints.
                 rust.code.push_str(prefix);
+                rust.code.push_str(compile.runtime);
+                rust.code.push_str("::Truthy::is_truthy(&");
                 compile.write_var(expression, rust, &var)?;
-                rust.code.push('{');
+                rust.code.push_str("){");
                 Ok(Self {})
             }
             None => Err(ParseError::new(
@@ -158,55 +162,6 @@ impl BlockFactory for UnlessFty {
         Ok(Box::new(IfOrUnless::new(
             "unless", "if !", compile, token, expression, rust,
         )?))
-    }
-}
-
-/// Handles if_some block compilation
-struct IfSome {
-    local: Local,
-}
-
-impl IfSome {
-    /// Creates a new if_some block
-    fn new<'a>(
-        by_ref: bool,
-        compile: &'a Compile<'a>,
-        token: Token<'a>,
-        expression: &'a Expression<'a>,
-        rust: &mut Rust,
-    ) -> Result<Self> {
-        let next = token.next()?.ok_or_else(|| {
-            ParseError::new(
-                &format!(
-                    "expected variable after if_some{}",
-                    if by_ref { "_ref" } else { "" }
-                ),
-                expression,
-            )
-        })?;
-        let local = read_local(&next, expression)?;
-        rust.code.push_str("if let Some(");
-        compile.write_local(&mut rust.code, &local);
-        rust.code.push_str(") = ");
-        if by_ref {
-            rust.code.push('&');
-        }
-        compile.write_var(expression, rust, &next)?;
-        rust.code.push('{');
-        Ok(Self { local })
-    }
-}
-
-impl Block for IfSome {
-    /// Handles else block compilation
-    fn handle_else<'a>(&self, _expression: &'a Expression<'a>, rust: &mut Rust) -> Result<()> {
-        rust.code.push_str("}else{");
-        Ok(())
-    }
-
-    /// Returns the local variable
-    fn local<'a>(&self) -> &Local {
-        &self.local
     }
 }
 
@@ -265,17 +220,6 @@ impl BlockFactory for WithFty {
         expression: &'a Expression<'a>,
         rust: &mut Rust,
     ) -> Result<Box<dyn Block>> {
-        let token_clone = token.clone();
-        if let Some(var) = token_clone.next()? {
-            let var_name = var.value;
-            if let Some(type_str) = compile.variable_types.get(var_name)
-                && type_str.contains("Option")
-            {
-                return Ok(Box::new(IfSome::new(
-                    true, compile, token, expression, rust,
-                )?));
-            }
-        }
         Ok(Box::new(With::new(true, compile, token, expression, rust)?))
     }
 }
@@ -364,7 +308,6 @@ fn check_for_else(src: &str) -> Result<bool> {
 impl Each {
     /// Creates a new each block
     pub fn new<'a>(
-        by_ref: bool,
         compile: &'a Compile<'a>,
         token: Token<'a>,
         expression: &'a Expression<'a>,
@@ -373,13 +316,7 @@ impl Each {
         let next = match token.next()? {
             Some(next) => next,
             None => {
-                return Err(ParseError::new(
-                    &format!(
-                        "expected variable after {}",
-                        if by_ref { "each_ref" } else { "each" }
-                    ),
-                    expression,
-                ));
+                return Err(ParseError::new("expected variable after each", expression));
             }
         };
         let indexer = check_for_indexer(expression.postfix).map(|found| match found {
@@ -400,10 +337,9 @@ impl Each {
         rust.code.push_str("for ");
         compile.write_local(&mut rust.code, &local);
         rust.code.push_str(" in ");
-        if by_ref {
-            rust.code.push('&');
-        }
         compile.write_var(expression, rust, &next)?;
+        // The field's only `AsRef` bound is the generated one, so this is unambiguous.
+        rust.code.push_str(".as_ref()");
         rust.code.push('{');
         if has_else {
             rust.code.push_str("empty = false;");
@@ -488,7 +424,7 @@ impl BlockFactory for EachFty {
         expression: &'a Expression<'a>,
         rust: &mut Rust,
     ) -> Result<Box<dyn Block>> {
-        Ok(Box::new(Each::new(true, compile, token, expression, rust)?))
+        Ok(Box::new(Each::new(compile, token, expression, rust)?))
     }
 }
 
