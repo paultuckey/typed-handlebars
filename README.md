@@ -1,16 +1,17 @@
-# typed-handlebars
+# Typed Handlebars
 
-_Experimental_ compile-time checked [Handlebars](https://handlebarsjs.com/) templates for Rust. Based on the parser
+_Experimental_ compile-time checked [Handlebars](https://handlebarsjs.com/) templates for [Rust](https://rust-lang.org/). Based on the parser
 from [rusty-handlebars](https://github.com/h-i-v-e/rusty-handlebars).
 
-The blog post [code first or schema first](https://blog.logrocket.com/code-first-vs-schema-first-development-graphql/)
+[Code first or schema first](https://blog.logrocket.com/code-first-vs-schema-first-development-graphql/)
 highlights that there are two way of thinking about templating. Code first or template first.
 
-This library takes a template first approach. The designer makes pure handlebars files (hbs) that can be edited
+This library takes a _template first_ approach. The designer makes pure handlebars files (`hbs`) that can be edited
 separately. Then the Rust developer gets a pure rust experience with compile time checking of templates and how they are
 called from Rust.
 
-The Rust developer should not have to repeat the template name or variable names in Rust code.
+The Rust developer should not have to repeat the template name or variable names in Rust code. They should be able to 
+use autocomplete in their IDE.
 
 ## Goals
 
@@ -30,7 +31,7 @@ twice. There are no traits for you to implement and nothing to derive.
 by IDE autocomplete rather than retyped from the template. Getting a name wrong should be a compile error, not something
 you discover in a rendered page.
 
-Example: Take a directory of handlebars files:
+## Example: directory of handlebars files:
 
 `templates/button.hbs`:
 
@@ -103,7 +104,7 @@ inline partials (`{{#*inline}}`) · `{{!-- … --~}}` · lists that are not slic
 
 ### Out of scope
 
-**Helpers** A helper is Rust code, and a template that needs Rust code stops
+**Helpers** A helper would be Rust code, and a template that needs Rust code stops
 being something the designer can own. `{{myhelper x}}` and `{{log}}` are compile errors naming the
 helper. Anything a helper would have done belongs in the wiring.
 
@@ -156,20 +157,13 @@ covers the same characters handlebars.js escapes - `&`, `<`, `>`, `"`, `'`, `` `
 happens as the value is written, so nothing is allocated for it.
 
 
-### When a template is wrong
-
-Mistakes in a `.hbs` file are reported against the file, with a line and column, in Handlebars
-terms:
-
-```
-error: templates/results.hbs:2:6: `{{#each}}` is never closed — it needs a matching `{{/each}}`
-```
-
-Constructs that are not supported yet say so by name rather than turning into a Rust error. With
-`directory!`, one broken template does not stop the others compiling.
-
 ### Known divergence from handlebars.js
 
 `{{#with person}}` renders its block even when `person` was never set, showing empty fields, where handlebars.js would
 skip the block. `{{#if}}` and `{{#unless}}` are unaffected — an absent variable is correctly falsy there.
+
+
+## See also
+
+[Usage notes](docs/Usage.md).
 
