@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dry-handlebars = { path = "../dry-handlebars" }
+typed-handlebars = { path = "../typed-handlebars" }

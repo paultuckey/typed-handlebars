@@ -1,8 +1,8 @@
 mod templates {
-    dry_handlebars::directory!("templates/");
-    dry_handlebars::file!("template/button2.hbs");
+    typed_handlebars::directory!("templates/");
+    typed_handlebars::file!("template/button2.hbs");
     //language=html
-    dry_handlebars::str!(
+    typed_handlebars::str!(
         "hello_first_last",
         r#"
         <p>Hello {{firstname}} {{lastname}}</p>

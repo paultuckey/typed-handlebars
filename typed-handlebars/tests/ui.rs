@@ -5,7 +5,7 @@
 //! tests exist so that stays true.
 //!
 //! The expected output lives in `tests/ui/*.stderr`. After an intentional change, regenerate it
-//! with `TRYBUILD=overwrite cargo test -p dry-handlebars --test ui` and read the diff.
+//! with `TRYBUILD=overwrite cargo test -p typed-handlebars --test ui` and read the diff.
 
 #[test]
 fn wiring_mistakes_are_reported_clearly() {

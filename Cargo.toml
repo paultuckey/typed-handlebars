@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "dry-handlebars",
-    "dry-handlebars-macros",
+    "typed-handlebars",
+    "typed-handlebars-macros",
     "example",
 ]
 resolver = "2"

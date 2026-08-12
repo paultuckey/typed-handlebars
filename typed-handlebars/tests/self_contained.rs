@@ -59,7 +59,7 @@ pub mod templates {
     #[allow(unused_imports)]
     use super::shadows::{include_bytes, write};
 
-    dry_handlebars::directory!("tests/templates/");
+    typed_handlebars::directory!("tests/templates/");
 }
 
 #[test]

@@ -34,20 +34,20 @@ fn to_snake_case(s: &str) -> String {
 
 /// The path generated code should use to reach the runtime crate.
 ///
-/// A consumer may rename the dependency (`hb = { package = "dry-handlebars" }`), in which case
-/// `::dry_handlebars` does not resolve for them. Asking Cargo what they called it keeps generated
+/// A consumer may rename the dependency (`hb = { package = "typed-handlebars" }`), in which case
+/// `::typed_handlebars` does not resolve for them. Asking Cargo what they called it keeps generated
 /// code working without them having to know it needed a particular name.
 fn runtime_crate() -> proc_macro2::TokenStream {
-    match proc_macro_crate::crate_name("dry-handlebars") {
+    match proc_macro_crate::crate_name("typed-handlebars") {
         Ok(proc_macro_crate::FoundCrate::Name(name)) => {
             let ident = format_ident!("{}", name);
             quote! { ::#ident }
         }
-        // Inside `dry-handlebars` itself, which is how its own tests expand.
+        // Inside `typed-handlebars` itself, which is how its own tests expand.
         Ok(proc_macro_crate::FoundCrate::Itself) => quote! { crate },
         // Not in the dependency list at all. Emitting the canonical name gives the developer a
         // "use of undeclared crate" pointing at the right name to add.
-        Err(_) => quote! { ::dry_handlebars },
+        Err(_) => quote! { ::typed_handlebars },
     }
 }
 
@@ -163,8 +163,8 @@ fn generate_code_for_content(
         // Reaching here means the parser accepted something code generation could not express.
         // That is a bug in this crate rather than in the template, so say so.
         format!(
-            "{}internal error: dry-handlebars generated invalid Rust for this template. \
-             Please report it at https://github.com/paultuckey/dry-handlebars/issues",
+            "{}internal error: typed-handlebars generated invalid Rust for this template. \
+             Please report it at https://github.com/paultuckey/typed-handlebars/issues",
             assembly
                 .path()
                 .map(|path| format!("{}: ", relative(path)))
@@ -359,7 +359,7 @@ impl Tree {
 }
 
 #[proc_macro]
-pub fn dry_handlebars_directory(input: TokenStream) -> TokenStream {
+pub fn typed_handlebars_directory(input: TokenStream) -> TokenStream {
     let dir_lit = parse_macro_input!(input as LitStr);
     let dir_str = dir_lit.value();
 
@@ -422,7 +422,7 @@ pub fn dry_handlebars_directory(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn dry_handlebars_file(input: TokenStream) -> TokenStream {
+pub fn typed_handlebars_file(input: TokenStream) -> TokenStream {
     let file_lit = parse_macro_input!(input as LitStr);
     let file_str = file_lit.value();
 
@@ -449,7 +449,7 @@ pub fn dry_handlebars_file(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn dry_handlebars_str(input: TokenStream) -> TokenStream {
+pub fn typed_handlebars_str(input: TokenStream) -> TokenStream {
     let StrInput { name, content } = parse_macro_input!(input as StrInput);
     // A `str!` template has no directory, so it has nowhere to resolve partials from.
     let assembled = Assembly::build(&content.value(), None, None)

@@ -4,7 +4,7 @@
 //! the same rule handlebars.js follows.
 
 mod templates {
-    dry_handlebars::directory!("tests/templates/");
+    typed_handlebars::directory!("tests/templates/");
 }
 
 #[test]

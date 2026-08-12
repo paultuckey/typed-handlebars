@@ -125,7 +125,7 @@ struct Marker;
 
 impl quote::ToTokens for Marker {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        format_ident!("__dry_handlebars_marker").to_tokens(tokens);
+        format_ident!("__typed_handlebars_marker").to_tokens(tokens);
     }
 }
 
@@ -175,7 +175,7 @@ impl State {
 /// compile error instead of a silently mis-ordered argument.
 ///
 /// Every slot starts as a `<type>_unset_<field>` marker, and setting a variable swaps that slot for
-/// `dry_handlebars::Set`. A marker resolves to whatever "absent" means for its field — nothing to
+/// `typed_handlebars::Set`. A marker resolves to whatever "absent" means for its field — nothing to
 /// display, a list with no items, a false condition — so a builder need not set everything, which
 /// is how Handlebars treats an undefined variable.
 ///

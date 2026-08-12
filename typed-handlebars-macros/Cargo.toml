@@ -1,11 +1,11 @@
 [package]
-name = "dry-handlebars-macros"
+name = "typed-handlebars-macros"
 version = "0.1.0"
 edition = "2024"
 authors = ["Paul Tuckey"]
-description = "Procedural macros for the `dry-handlebars` crate"
+description = "Procedural macros for the `typed-handlebars` crate"
 license = "MIT"
-repository = "https://github.com/paultuckey/dry-handlebars"
+repository = "https://github.com/paultuckey/typed-handlebars"
 
 [lib]
 proc-macro = true

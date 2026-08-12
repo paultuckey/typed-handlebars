@@ -20,10 +20,10 @@ checked against the language it claims to implement rather than against itself:
 cd reference-ts && npm install && npm test
 ```
 
-`dry-handlebars/tests/ui/` holds compile-fail tests pinning the error messages a developer sees when
+`typed-handlebars/tests/ui/` holds compile-fail tests pinning the error messages a developer sees when
 a template or its wiring is wrong. After changing a diagnostic on purpose, regenerate the expected
 output and read the diff:
 
 ```shell
-TRYBUILD=overwrite cargo test -p dry-handlebars --test ui
+TRYBUILD=overwrite cargo test -p typed-handlebars --test ui
 ```

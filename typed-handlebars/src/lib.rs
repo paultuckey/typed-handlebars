@@ -1,6 +1,6 @@
-pub use dry_handlebars_macros::dry_handlebars_directory as directory;
-pub use dry_handlebars_macros::dry_handlebars_file as file;
-pub use dry_handlebars_macros::dry_handlebars_str as str;
+pub use typed_handlebars_macros::typed_handlebars_directory as directory;
+pub use typed_handlebars_macros::typed_handlebars_file as file;
+pub use typed_handlebars_macros::typed_handlebars_str as str;
 
 /// A variable that was never given a value.
 ///

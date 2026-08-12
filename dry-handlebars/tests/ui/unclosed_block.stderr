@@ -1,5 +1,0 @@
-error: line 2, column 6: `{{#each}}` is never closed — it needs a matching `{{/each}}`
- --> tests/ui/unclosed_block.rs:3:34
-  |
-3 |     dry_handlebars::str!("page", "<ul>\n  {{#each rows}}\n    <li>{{ name }}</li>\n</ul>");
-  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

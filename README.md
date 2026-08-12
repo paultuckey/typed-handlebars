@@ -1,4 +1,4 @@
-# dry-handlebars
+# typed-handlebars
 
 _Experimental_ compile-time checked [Handlebars](https://handlebarsjs.com/) templates for Rust. Based on the parser
 from [rusty-handlebars](https://github.com/h-i-v-e/rusty-handlebars).
@@ -10,8 +10,7 @@ This library takes a template first approach. The designer makes pure handlebars
 separately. Then the Rust developer gets a pure rust experience with compile time checking of templates and how they are
 called from Rust.
 
-The Rust developer should not have to repeat the template name or variable names in Rust code, hence the name DRY (don't
-repeat yourself).
+The Rust developer should not have to repeat the template name or variable names in Rust code.
 
 ## Goals
 
@@ -45,7 +44,7 @@ Then in rust:
 
 ```rust
 mod templates {
-    dry_handlebars::directory!("templates/");
+    typed_handlebars::directory!("templates/");
 }
 fn get_html() -> String {
     // templates::button is automatically generated 
