@@ -27,3 +27,7 @@ output and read the diff:
 ```shell
 TRYBUILD=overwrite cargo test -p typed-handlebars --test ui
 ```
+
+## Releasing
+
+Publishing to crates.io is done by hand: [Release notes](docs/Release.md).

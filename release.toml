@@ -1,0 +1,7 @@
+# Settings for `cargo release`; the procedure is in docs/Release.md.
+
+# The two published crates are versioned as one, so a release produces a single version and a
+# single `v0.1.0` tag rather than a tag per crate. `shared-version` is also what makes
+# `typed-handlebars`'s pinned dependency on `typed-handlebars-macros` move with the bump.
+shared-version = true
+tag-name = "v{{version}}"

@@ -20,49 +20,52 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! Handlebars template parser and compiler
+//! Handlebars template parser and compiler.
 //!
-//! This crate provides the core functionality for parsing and compiling Handlebars templates
-//! into Rust code. It's used internally by the `rusty-handlebars` crate to process templates
-//! at compile time.
+//! Parses a Handlebars template and compiles it to Rust source. This is the parsing half of
+//! `typed-handlebars-macros`, derived from the parser in
+//! [rusty-handlebars](https://github.com/h-i-v-e/rusty-handlebars) — see the MIT notice above and
+//! the `NOTICE` file at the repository root. The type inference and code generation built on top
+//! of it ([`context`](super::context), `codegen`, `assemble`) are not from there.
 //!
-//! # Features
+//! # What is parsed
 //!
-//! - Handlebars template parsing
-//! - Template compilation to Rust code
-//! - Support for all standard Handlebars features:
-//!   - Variables and expressions
-//!   - Block helpers (if, unless, each, with)
-//!   - Partials
-//!   - Comments
-//!   - HTML escaping
-//!   - Whitespace control
-//!   - Subexpressions
-//!   - Lookup helpers
+//! - Variables and paths — `{{ name }}`, `{{ person.name }}`, `{{ ../name }}`
+//! - Block helpers — `{{#if}}`, `{{#unless}}`, `{{#each}}`, `{{#with}}`, with `{{else}}` and
+//!   block params (`as |row|`)
+//! - Comments, whitespace control (`{{~ … ~}}`), raw blocks, and escaped `\{{`
+//! - HTML escaping: `{{ }}` escapes, `{{{ }}}` does not
+//!
+//! Partials are handled before this point, by splicing in `assemble.rs`, so `{{> row}}` never
+//! reaches the compiler as a partial.
+//!
+//! Custom helpers, subexpressions and `{{lookup}}` are **rejected by name** rather than parsed —
+//! a helper is Rust code, and a template that needs Rust code stops being something a designer can
+//! own. See the supported-subset tables in the README.
 //!
 //! # Example
 //!
 //! ```ignore
-//! use compiler::{Compiler, Options, BlockMap};
-//! use block::add_builtins;
-//!
 //! let mut factories = BlockMap::new();
 //! add_builtins(&mut factories);
 //!
-//! let compiler = Compiler::new(Options {
-//!     write_var_name: "f",
-//!     root_var_name: Some("self")
-//! }, factories);
+//! let compiler = Compiler::new(
+//!     Options {
+//!         root_var_name: Some("self"),
+//!         write_var_name: "f",
+//!         runtime: "::typed_handlebars".to_string(),
+//!     },
+//!     factories,
+//! );
 //!
-//! let template = "Hello {{name}}!";
-//! let rust_code = compiler.compile(template).unwrap();
+//! let rust_code = compiler.compile("Hello {{name}}!")?;
 //! ```
 //!
-//! # Module Structure
+//! # Module structure
 //!
-//! - `compiler.rs`: Main compiler implementation
-//! - `block.rs`: Block helper implementations
-//! - `expression.rs`: Expression parsing and evaluation
-//! - `expression_tokenizer.rs`: Tokenization of expressions
-//! - `error.rs`: Error types and handling
-//! - `build_helper.rs`: Helper functions for template building
+//! - `compiler.rs`: main compiler implementation
+//! - `block.rs`: block helper implementations
+//! - `context.rs`: infers the context shape a template implies (not from rusty-handlebars)
+//! - `expression.rs`: expression parsing and evaluation
+//! - `expression_tokenizer.rs`: tokenization of expressions
+//! - `error.rs`: error types, and the positions they report against the `.hbs` file

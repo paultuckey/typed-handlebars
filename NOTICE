@@ -1,0 +1,29 @@
+typed-handlebars
+Copyright (c) 2025 Paul Tuckey
+
+This product includes software developed as part of rusty-handlebars.
+
+  rusty-handlebars — https://github.com/h-i-v-e/rusty-handlebars
+  Copyright (c) 2024 Jerome Johnson
+  Licensed under the MIT License.
+
+The Handlebars parser in `typed-handlebars-macros/src/parser/` is derived from that project and
+has been substantially modified. Every file in that directory that carries the original work
+retains its MIT copyright header:
+
+  block.rs
+  compiler.rs
+  error.rs
+  expression.rs
+  expression_tokenizer.rs
+  lib.rs
+  mod.rs
+
+`typed-handlebars-macros/src/parser/context.rs` is not derived from rusty-handlebars, and neither
+is anything outside that directory — `assemble.rs`, `codegen.rs`, the macro entry points, or the
+`typed-handlebars` runtime crate.
+
+typed-handlebars as a whole is distributed under MIT OR Apache-2.0 (see LICENSE-MIT and
+LICENSE-APACHE). The MIT License under which the derived portions were obtained permits this;
+its requirement that the copyright notice be retained is satisfied by the per-file headers and by
+this file, both of which ship in the published packages.

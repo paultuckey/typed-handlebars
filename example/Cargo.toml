@@ -6,5 +6,9 @@ rust-version.workspace = true
 # A demonstration crate, not part of the release.
 publish = false
 
+# Keeps `cargo release` from bumping and tagging this crate along with the published two.
+[package.metadata.release]
+release = false
+
 [dependencies]
 typed-handlebars = { path = "../typed-handlebars" }
