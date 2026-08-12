@@ -250,9 +250,21 @@ pub struct Compile<'a> {
     pub runtime: &'a str,
 }
 
+/// Writes a dotted template path as Rust field access, one sanitised segment at a time.
+///
+/// A template may name a field `type` or `match`; the generated code cannot.
+fn push_path(buffer: &mut String, path: &str, leading_dot: bool) {
+    for (index, segment) in path.split('.').enumerate() {
+        if index > 0 || leading_dot {
+            buffer.push('.');
+        }
+        buffer.push_str(&crate::sanitise_ident(segment));
+    }
+}
+
 /// Appends a depth suffix to a variable name
 pub fn append_with_depth(depth: usize, var: &str, buffer: &mut String) {
-    buffer.push_str(var);
+    buffer.push_str(&crate::sanitise_ident(var));
     buffer.push('_');
     buffer.push_str(depth.to_string().as_str());
 }
@@ -317,7 +329,7 @@ impl<'a> Compile<'a> {
                     return false;
                 }
                 append_with_depth(depth, local, buffer);
-                buffer.push_str(&var[len..]);
+                push_path(buffer, &var[len + 1..], true);
             } else {
                 append_with_depth(depth, local, buffer);
             }
@@ -333,7 +345,7 @@ impl<'a> Compile<'a> {
                 rust.code.push_str(this);
                 rust.code.push('.');
             }
-            rust.code.push_str(var);
+            push_path(&mut rust.code, var, false);
             rust.top_level_vars.insert(var.to_string());
             return Ok(());
         }
@@ -343,8 +355,7 @@ impl<'a> Compile<'a> {
                 rust.code.push_str("this_");
                 rust.code.push_str(scope.depth.to_string().as_str());
                 if var != "this" {
-                    rust.code.push('.');
-                    rust.code.push_str(var);
+                    push_path(&mut rust.code, var, true);
                 }
                 true
             }
@@ -356,8 +367,7 @@ impl<'a> Compile<'a> {
         if let Some(this) = scope.opened.this() {
             self.resolve_var(this, parent, rust)?;
             if var != this {
-                rust.code.push('.');
-                rust.code.push_str(var);
+                push_path(&mut rust.code, var, true);
             }
         } else {
             self.resolve_var(var, parent, rust)?;

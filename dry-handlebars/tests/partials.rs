@@ -77,6 +77,15 @@ fn subdirectories_become_modules() {
     );
 }
 
+/// Template file names come from whoever writes the templates, so a file called `mod.hbs` or
+/// `2col.hbs` has to work. Both used to be a proc-macro panic or `expected identifier, found
+/// keyword`.
+#[test]
+fn template_file_names_may_be_rust_keywords() {
+    assert_eq!(templates::awkward::mod_("x").render(), "<p>x</p>");
+    assert_eq!(templates::awkward::_2col("x").render(), "<p>x</p>");
+}
+
 /// Values from a partial are escaped like any other, since the partial is generated code rather
 /// than a rendered string being written back in.
 #[test]

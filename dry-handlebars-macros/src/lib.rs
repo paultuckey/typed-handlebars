@@ -51,6 +51,47 @@ fn runtime_crate() -> proc_macro2::TokenStream {
     }
 }
 
+/// Rust's keywords, which a Handlebars author has no reason to avoid.
+///
+/// Includes the reserved ones, so a template does not start failing when a future edition takes a
+/// word into use.
+const KEYWORDS: &[&str] = &[
+    "as", "async", "await", "become", "box", "break", "const", "continue", "crate", "do", "dyn",
+    "else", "enum", "extern", "false", "final", "fn", "for", "gen", "if", "impl", "in", "let",
+    "loop", "macro", "match", "mod", "move", "mut", "override", "priv", "pub", "ref", "return",
+    "self", "Self", "static", "struct", "super", "trait", "true", "try", "type", "typeof",
+    "unsafe", "unsized", "use", "virtual", "where", "while", "yield",
+];
+
+/// Turns a name from a template or a filename into a usable Rust identifier.
+///
+/// The person writing `.hbs` files picks these names and has no reason to know what Rust reserves,
+/// so a variable called `type` or a file called `mod.hbs` has to work. Raw identifiers would cover
+/// most of it, but `r#self` and `r#crate` are not legal, so a trailing underscore is used
+/// throughout instead — one rule rather than two, and the setter shows up in autocomplete either
+/// way.
+pub(crate) fn sanitise_ident(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() + 1);
+    for (index, character) in name.chars().enumerate() {
+        if index == 0 && character.is_numeric() {
+            // An identifier cannot start with a digit, but `2col.hbs` is a reasonable file name.
+            out.push('_');
+        }
+        if character.is_alphanumeric() || character == '_' {
+            out.push(character);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() {
+        out.push('_');
+    }
+    if KEYWORDS.contains(&out.as_str()) {
+        out.push('_');
+    }
+    out
+}
+
 /// Shortens a path for display, relative to the crate being built.
 ///
 /// Absolute paths to a build directory are noise in an error message; `templates/results.hbs` is
@@ -95,7 +136,7 @@ fn generate_code_for_content(
     assembly: &Assembly,
 ) -> Result<proc_macro2::TokenStream, String> {
     let content = &assembly.text;
-    let template_name = name.replace("-", "_");
+    let template_name = sanitise_ident(name);
     // Everything a template generates lives in a module of its own, so a template with a `rows`
     // list cannot collide with a template called `rows_item`, and the names stay readable.
     let module_name = format_ident!("{}", template_name);
@@ -300,7 +341,7 @@ impl Tree {
     fn emit(&self) -> proc_macro2::TokenStream {
         let templates = &self.templates;
         let children = self.children.iter().map(|(name, child)| {
-            let ident = format_ident!("{}", name.replace(['-', '.', ' '], "_"));
+            let ident = format_ident!("{}", crate::sanitise_ident(name));
             let doc = format!("Templates from the `{}` directory.", name);
             let inner = child.emit();
             quote! {

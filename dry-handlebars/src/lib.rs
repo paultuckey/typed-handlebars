@@ -286,6 +286,44 @@ mod tests {
         assert_eq!(counter.0, "<p>King</p>".len());
     }
 
+    /// The person writing a template picks the variable names and has no reason to know what Rust
+    /// reserves. Every one of these used to be a proc-macro panic or a raw Rust syntax error.
+    #[test]
+    fn variable_names_may_be_rust_keywords() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"[{{ type }}][{{ match }}][{{ fn }}][{{ self }}][{{ crate }}][{{ loop }}]"#
+            );
+        }
+        assert_eq!(
+            template::test("a", "b", "c", "d", "e", "f").render(),
+            "[a][b][c][d][e][f]"
+        );
+        // The builder renames them the same way, so autocomplete still finds them.
+        assert_eq!(
+            template::test::Builder::new()
+                .type_("a")
+                .self_("d")
+                .render(),
+            "[a][][][d][][]"
+        );
+    }
+
+    /// handlebars.js reads `{{2nd}}` as a variable reference, so this does too. Mirrored in
+    /// `reference-ts`.
+    #[test]
+    fn variable_names_may_start_with_a_digit() {
+        mod template {
+            crate::str!("test", r#"[{{ 2nd }}][{{ 42 }}]"#);
+        }
+        assert_eq!(
+            template::test("silver", "answer").render(),
+            "[silver][answer]"
+        );
+    }
+
     /// Pre-rendered markup goes in `{{{ }}}`, which is how Handlebars does it too.
     #[test]
     fn a_nested_template_can_be_passed_through_triple_braces() {

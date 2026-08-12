@@ -136,9 +136,11 @@ fn invalid_variable_name(src: &str) -> bool {
     if src.starts_with("../") {
         return false; // ../ is valid for relative paths
     }
+    // A digit may start a name: handlebars.js reads `{{2nd}}` as a variable, and a designer has no
+    // reason to know that Rust would not. Code generation renames it to something Rust accepts.
     src.chars()
         .next()
-        .map(|c| !(c.is_alphabetic() || c == '_'))
+        .map(|c| !(c.is_alphanumeric() || c == '_'))
         .unwrap_or(false)
 }
 

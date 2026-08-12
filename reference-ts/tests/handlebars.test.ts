@@ -186,6 +186,13 @@ describe('Handlebars Reference Tests', () => {
         expect(template({})).toBe('Note: and done');
     });
 
+    // Mirrors `variable_names_may_start_with_a_digit`. handlebars.js reads these as variable
+    // references, so the Rust side renames them rather than rejecting them.
+    it('variable_names_may_start_with_a_digit', () => {
+        const template = Handlebars.compile('[{{ 2nd }}][{{ 42 }}]');
+        expect(template({ '2nd': "silver", '42': "answer" })).toBe('[silver][answer]');
+    });
+
     it('it_works', () => {
         const template = Handlebars.compile('Hello {{{name}}}!');
         const result = template({ name: "King" });

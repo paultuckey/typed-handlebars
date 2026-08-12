@@ -136,7 +136,7 @@ fn camel(name: &str) -> String {
     let mut out = String::new();
     let mut capitalise = true;
     for character in name.chars() {
-        if character == '_' || character == '-' {
+        if !character.is_alphanumeric() {
             capitalise = true;
             continue;
         }
@@ -147,7 +147,9 @@ fn camel(name: &str) -> String {
             out.push(character);
         }
     }
-    out
+    // `self` camel-cases to `Self`, which is still reserved, and a name starting with a digit is
+    // still not an identifier.
+    crate::sanitise_ident(&out)
 }
 
 /// State shared across one template's code generation.
@@ -405,7 +407,7 @@ fn build(
             .declarations
             .push(quote! { #[doc = #doc] pub #name: #ty });
         shape.names.push(name);
-        shape.plain_names.push(field.name.replace('-', "_"));
+        shape.plain_names.push(field.name.clone());
         shape.types.push(ty);
     }
 
@@ -579,13 +581,6 @@ fn absorb(parent: &mut Shape, child: Shape, in_field: bool) -> Vec<Ident> {
 }
 
 /// Maps a template variable name to a Rust identifier.
-///
-/// Handlebars names that happen to be Rust keywords become raw identifiers: the person writing the
-/// template has no reason to know what `type` or `match` mean to a Rust compiler.
 fn field_ident(name: &str) -> Ident {
-    let sanitised = name.replace('-', "_");
-    match syn::parse_str::<Ident>(&sanitised) {
-        Ok(ident) => ident,
-        Err(_) => Ident::new_raw(&sanitised, proc_macro2::Span::call_site()),
-    }
+    format_ident!("{}", crate::sanitise_ident(name))
 }
