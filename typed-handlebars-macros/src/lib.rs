@@ -1,3 +1,18 @@
+//! The proc-macro half of [`typed-handlebars`](https://docs.rs/typed-handlebars).
+//!
+//! This crate is an implementation detail: it is a `proc-macro` crate, so it cannot re-export the
+//! runtime items the code it generates needs. Depend on `typed-handlebars` instead, which
+//! re-exports these three macros under shorter names and documents them with worked examples:
+//!
+//! | Here                            | What you use            |
+//! |---------------------------------|-------------------------|
+//! | [`typed_handlebars_directory!`] | `typed_handlebars::directory!` |
+//! | [`typed_handlebars_file!`]      | `typed_handlebars::file!`      |
+//! | [`typed_handlebars_str!`]       | `typed_handlebars::str!`       |
+//!
+//! Generated code refers to the runtime crate by whatever name the consumer gave it, so renaming
+//! the dependency is fine.
+
 mod assemble;
 mod codegen;
 mod parser;
@@ -44,7 +59,13 @@ fn runtime_crate() -> proc_macro2::TokenStream {
             quote! { ::#ident }
         }
         // Inside `typed-handlebars` itself, which is how its own tests expand.
-        Ok(proc_macro_crate::FoundCrate::Itself) => quote! { crate },
+        //
+        // Not `crate`: a doctest is compiled as its own crate that *depends* on
+        // `typed-handlebars`, yet `CARGO_MANIFEST_DIR` still points at this manifest, so
+        // `crate_name` answers `Itself` for it too. `crate::Truthy` would then look for the trait
+        // in the doctest. `extern crate self as typed_handlebars` in the runtime crate makes the
+        // absolute path resolve from inside and outside alike.
+        Ok(proc_macro_crate::FoundCrate::Itself) => quote! { ::typed_handlebars },
         // Not in the dependency list at all. Emitting the canonical name gives the developer a
         // "use of undeclared crate" pointing at the right name to add.
         Err(_) => quote! { ::typed_handlebars },
@@ -358,6 +379,8 @@ impl Tree {
     }
 }
 
+// Documented on the re-export in the runtime crate, where the examples can actually run. Docs
+// here would be concatenated onto those by `#[doc(inline)]`, so they are deliberately absent.
 #[proc_macro]
 pub fn typed_handlebars_directory(input: TokenStream) -> TokenStream {
     let dir_lit = parse_macro_input!(input as LitStr);
@@ -421,6 +444,7 @@ pub fn typed_handlebars_directory(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
+// Documented on the re-export in the runtime crate — see `typed_handlebars_directory` above.
 #[proc_macro]
 pub fn typed_handlebars_file(input: TokenStream) -> TokenStream {
     let file_lit = parse_macro_input!(input as LitStr);
@@ -448,6 +472,7 @@ pub fn typed_handlebars_file(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
+// Documented on the re-export in the runtime crate — see `typed_handlebars_directory` above.
 #[proc_macro]
 pub fn typed_handlebars_str(input: TokenStream) -> TokenStream {
     let StrInput { name, content } = parse_macro_input!(input as StrInput);

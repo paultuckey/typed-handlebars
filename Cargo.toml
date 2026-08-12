@@ -4,5 +4,18 @@ members = [
     "typed-handlebars-macros",
     "example",
 ]
-resolver = "2"
+# Edition 2024 pairs with resolver 3, which also makes dependency resolution
+# `rust-version`-aware — so the MSRV below is respected when versions are picked.
+resolver = "3"
 
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# `parser/expression.rs` needs 1.88, and `trybuild` needs 1.88 to run the UI tests.
+rust-version = "1.88"
+authors = ["Paul Tuckey"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/paultuckey/typed-handlebars"
+homepage = "https://github.com/paultuckey/typed-handlebars"
+keywords = ["handlebars", "template", "html", "macro", "compile-time"]
+categories = ["template-engine", "web-programming"]

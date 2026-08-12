@@ -1,7 +1,10 @@
 [package]
 name = "example"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
+# A demonstration crate, not part of the release.
+publish = false
 
 [dependencies]
 typed-handlebars = { path = "../typed-handlebars" }

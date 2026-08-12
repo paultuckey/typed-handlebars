@@ -1,0 +1,14 @@
+# A consumer standing in for someone who has just run `cargo add typed-handlebars`.
+#
+# Deliberately its own workspace, not a member of the one above: a member would inherit the
+# workspace's lints, features and resolver, and the whole point is to see what an outsider sees.
+[workspace]
+
+[package]
+name = "consumer-test"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+typed-handlebars = { path = "../typed-handlebars" }

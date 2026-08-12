@@ -1,14 +1,23 @@
 [package]
 name = "typed-handlebars"
-version = "0.1.0"
-edition = "2024"
-authors = ["Paul Tuckey"]
 description = "Compile-time checked Handlebars templates for Rust"
-license = "MIT"
-repository = "https://github.com/paultuckey/typed-handlebars"
+documentation = "https://docs.rs/typed-handlebars"
+readme = "../README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 typed-handlebars-macros = { path = "../typed-handlebars-macros", version = "0.1.0" }
 
 [dev-dependencies]
 trybuild = "1.0"
+
+[package.metadata.docs.rs]
+all-features = true

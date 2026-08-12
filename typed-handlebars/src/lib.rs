@@ -1,5 +1,185 @@
+//! Compile-time checked [Handlebars](https://handlebarsjs.com/) templates for Rust.
+//!
+//! Your `.hbs` files are the master copy. At build time they become Rust — no parsing, no template
+//! registry and no lookups at run time — and the types they need are generated from what the
+//! template itself says.
+//!
+//! This is built for two people:
+//!
+//! - **Whoever writes the templates needs to know no Rust.** An `.hbs` file is plain Handlebars,
+//!   with no type names, annotations or macro-specific syntax, and it renders the same under
+//!   handlebars.js. A mistake in a template is reported against the template, with a line and
+//!   column.
+//! - **Whoever writes the Rust only does the wiring.** There is nothing to derive and no trait to
+//!   implement. `{{#each rows}}{{ name }}{{/each}}` says `rows` is a list of records with a
+//!   `name`, so that type is generated for you, and your IDE supplies the names instead of you
+//!   retyping them from the template.
+//!
+//! # Getting started
+//!
+//! Point [`directory!`] at a folder of templates. Given `templates/button.hbs`:
+//!
+//! ```handlebars
+//! <button id="btn{{ btn_id }}">{{ btn_name }}</button>
+//! ```
+//!
+//! each file becomes a module with a function named after it. Arguments are positional, in the
+//! order the variables first appear in the template:
+//!
+//! ```
+//! mod templates {
+//!     // The real example uses "templates/"; this crate keeps its doc fixtures here.
+//!     typed_handlebars::directory!("doc-templates/");
+//! }
+//!
+//! assert_eq!(
+//!     templates::button(42, "Save").render(),
+//!     r#"<button id="btn42">Save</button>"#
+//! );
+//! ```
+//!
+//! # The builder
+//!
+//! Every template also gets a builder. It is optional, but it names each variable, so argument
+//! order stops mattering and a renamed template variable becomes a compile error rather than a
+//! silently transposed argument:
+//!
+//! ```
+//! mod templates {
+//!     typed_handlebars::directory!("doc-templates/");
+//! }
+//!
+//! let html = templates::button::Builder::new()
+//!     .btn_name("Save")
+//!     .btn_id(42)
+//!     .render();
+//! assert_eq!(html, r#"<button id="btn42">Save</button>"#);
+//! ```
+//!
+//! You set only what you have. Anything left out renders as Handlebars renders an undefined
+//! variable — as nothing, an empty list, or a false condition:
+//!
+//! ```
+//! # mod templates { typed_handlebars::directory!("doc-templates/"); }
+//! assert_eq!(
+//!     templates::button::Builder::new().btn_id(42).render(),
+//!     r#"<button id="btn42"></button>"#
+//! );
+//! ```
+//!
+//! # Rendering
+//!
+//! A template value implements [`Display`](core::fmt::Display), so it can be nested inside another
+//! template or written straight into a buffer you already have — no intermediate `String` per
+//! level:
+//!
+//! ```
+//! # mod templates { typed_handlebars::directory!("doc-templates/"); }
+//! use core::fmt::Write;
+//!
+//! let mut page = String::from("<div>");
+//! templates::button(42, "Save").render_to(&mut page).unwrap();
+//! page.push_str("</div>");
+//! assert_eq!(page, r#"<div><button id="btn42">Save</button></div>"#);
+//! ```
+//!
+//! `{{ name }}` is HTML-escaped and `{{{ name }}}` is not, as Handlebars specifies. Markup you
+//! have already rendered goes in `{{{ }}}`.
+//!
+//! # The supported subset
+//!
+//! Anything outside the supported subset is a compile error that names the construct — never a
+//! silent difference in output, and never a Rust type error to decode. The README has the full
+//! table of what works, what is not implemented yet, and what is deliberately out of scope
+//! (helpers and runtime template loading).
+//!
+//! # Everything else in this crate
+//!
+//! [`Empty`], [`escape`], [`Escaped`], [`Truthy`], [`Set`] and [`IsSet`] are the runtime support
+//! that generated code calls into. They are public because the generated code names them, not
+//! because you need to: there is nothing here for you to implement.
+
+// Generated code names this crate absolutely, as `::typed_handlebars`, so that one emitted path
+// works everywhere: in a consumer's crate, in this crate's own unit tests, and in the doctests
+// above — which rustdoc compiles as separate crates depending on this one.
+extern crate self as typed_handlebars;
+
+/// Generates a module per `.hbs` file in a directory, mirroring the directory layout.
+///
+/// The path is relative to the crate root (the directory holding `Cargo.toml`). Every `.hbs` file
+/// beneath it becomes a module named after the file, holding a constructor function, a
+/// [`Builder`](crate#the-builder), and whatever types the template implies. Subdirectories become
+/// nested modules, so `templates/admin/row.hbs` is `templates::admin::row` and two files called
+/// `row.hbs` in different folders do not collide.
+///
+/// ```
+/// mod templates {
+///     typed_handlebars::directory!("doc-templates/");
+/// }
+///
+/// // doc-templates/button.hbs and doc-templates/greeting.hbs
+/// assert_eq!(
+///     templates::button(42, "Save").render(),
+///     r#"<button id="btn42">Save</button>"#
+/// );
+/// assert_eq!(templates::greeting("King").render(), "<p>Hello King!</p>");
+/// ```
+///
+/// `{{> partial}}` is resolved against this tree at compile time. Editing any template — or any
+/// partial it includes — rebuilds the code generated from it.
+///
+/// One broken template reports itself and the others still compile.
+#[doc(inline)]
 pub use typed_handlebars_macros::typed_handlebars_directory as directory;
+
+/// Generates a module for a single `.hbs` file.
+///
+/// The path is relative to the crate root. Partials are resolved against the file's own directory.
+///
+/// ```
+/// mod button {
+///     typed_handlebars::file!("doc-templates/button.hbs");
+/// }
+///
+/// assert_eq!(
+///     button::button(42, "Save").render(),
+///     r#"<button id="btn42">Save</button>"#
+/// );
+/// ```
+///
+/// Reach for [`directory!`] unless you want one specific file; it keeps the module layout and the
+/// folder layout the same thing.
+#[doc(inline)]
 pub use typed_handlebars_macros::typed_handlebars_file as file;
+
+/// Generates a module from a template written inline, given a name and the template text.
+///
+/// Useful for a one-liner or a test. There is no directory to resolve against, so `{{> partial}}`
+/// is a compile error here — use [`directory!`] or [`file!`] for templates that include others.
+///
+/// ```
+/// mod templates {
+///     typed_handlebars::str!("greeting", "<p>Hello {{ name }}!</p>");
+/// }
+///
+/// assert_eq!(templates::greeting("King").render(), "<p>Hello King!</p>");
+/// ```
+///
+/// The generated types come from the template just as they do for a file, so a list still
+/// generates its item type:
+///
+/// ```
+/// mod templates {
+///     typed_handlebars::str!("list", "{{#each rows}}<li>{{ name }}</li>{{/each}}");
+/// }
+///
+/// let rows = vec![
+///     templates::list::RowsItem::new("King"),
+///     templates::list::RowsItem::new("Tubby"),
+/// ];
+/// assert_eq!(templates::list(rows).render(), "<li>King</li><li>Tubby</li>");
+/// ```
+#[doc(inline)]
 pub use typed_handlebars_macros::typed_handlebars_str as str;
 
 /// A variable that was never given a value.
@@ -862,17 +1042,6 @@ mod tests {
         }
         assert_eq!(template::test(true).render(), "Hello");
     }
-
-    ///
-    ///
-    ///
-    ///
-    ///
-    ///
-    ///
-    ///
-    ///
-    ///
 
     #[test]
     fn it_works() {

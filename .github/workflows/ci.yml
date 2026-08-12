@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -14,3 +17,28 @@ jobs:
         run: cargo build --verbose
       - name: Run tests
         run: cargo test --verbose
+
+  # The project goal as a build: someone who has just added the dependency writes only wiring —
+  # no `use`, no `#[allow]`, no trait impl — and generated code stays clean under deny lints.
+  # It is its own workspace with no committed lockfile, so it also catches the case where a new
+  # release of a dependency breaks a fresh install.
+  consumer:
+    name: Fresh consumer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build and run the README example as an outside crate
+        working-directory: consumer-test
+        run: cargo run --verbose
+
+  # `cargo check`, not `cargo test`: the `trybuild` UI tests pin rustc's exact diagnostic
+  # rendering, which changes between releases, so they only make sense on the current toolchain.
+  msrv:
+    name: MSRV (1.88)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install the MSRV toolchain
+        run: rustup toolchain install 1.88 --profile minimal
+      - name: Check both published crates
+        run: cargo +1.88 check -p typed-handlebars -p typed-handlebars-macros --verbose
