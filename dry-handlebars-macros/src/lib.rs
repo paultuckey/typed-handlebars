@@ -203,18 +203,34 @@ fn generate_code_for_content(
                 }
             }
 
-            /// Renders the template.
+            /// Writes the template into any sink — a `String`, a response buffer, anything
+            /// implementing `fmt::Write`.
+            ///
+            /// This is where the rendering actually happens; `render` is a convenience over it.
+            pub fn render_to(
+                &self,
+                f: &mut impl ::core::fmt::Write,
+            ) -> ::core::fmt::Result {
+                // A template with no variables writes nothing, so the sink can go unused.
+                let _ = &f;
+                #render_body
+                ::core::result::Result::Ok(())
+            }
+
+            /// Renders the template to a new `String`.
             pub fn render(&self) -> ::std::string::String {
-                // Everything here is absolute: generated code must compile whatever the call site
-                // has in scope, including a shadowed `String` or `write!`.
-                use ::core::fmt::Write as _;
-                let mut f = ::std::string::String::new();
-                let mut render_inner = || -> ::core::fmt::Result {
-                    #render_body
-                    ::core::result::Result::Ok(())
-                };
-                let _ = render_inner();
-                f
+                let mut out = ::std::string::String::new();
+                // Writing into a `String` cannot fail, so there is no error to propagate.
+                let _ = self.render_to(&mut out);
+                out
+            }
+        }
+
+        // Rendering into a formatter means a nested template can be passed straight to a parent as
+        // a value and written once into its buffer, rather than each level allocating a `String`.
+        impl<#(#params),*> ::core::fmt::Display for #struct_name<#(#params),*> #where_clause {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                self.render_to(f)
             }
         }
 
