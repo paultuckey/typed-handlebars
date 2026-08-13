@@ -387,15 +387,18 @@ impl Block for Each {
         name: &str,
         rust: &mut Rust,
     ) -> Result<()> {
-        Ok(match name {
+        match name {
             "index" => rust.code.push_str(self.indexer.as_ref().unwrap()),
             "key" => self.write_map_var(depth, ".0", rust),
             "value" => self.write_map_var(depth, ".1", rust),
-            _ => Err(ParseError::new(
-                &format!("unexpected variable {}", name),
-                expression,
-            ))?,
-        })
+            _ => {
+                return Err(ParseError::new(
+                    &format!("unexpected variable {}", name),
+                    expression,
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn handle_close<'a>(&self, rust: &mut Rust) {

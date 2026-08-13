@@ -549,9 +549,9 @@ fn declare(
             }
         }
 
-        // A record is present, so `{{#if person}}` renders. See todo.md item 3 for the one place
-        // this parts company with handlebars.js: a record left unset is a record of empties rather
-        // than an absent one, so it still counts as present.
+        // A record is present, so `{{#if person}}` renders. This is the one place the crate parts
+        // company with handlebars.js: a record left unset is a record of empties rather than an
+        // absent one, so it still counts as present.
         impl<#(#params),*> #runtime::Truthy for #type_name<#(#params),*> #where_clause {
             fn is_truthy(&self) -> bool {
                 true

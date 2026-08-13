@@ -9,6 +9,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Development.md asks contributors to run both of these, so CI holds the same line rather than
+  # letting the repo drift away from what it tells people to do.
+  lint:
+    name: Format and lints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check formatting
+        run: cargo fmt --all --check
+      # `--all-targets` covers tests and the example, not just the two published crates, and
+      # `-D warnings` means a new lint fails the build instead of scrolling past.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
   test:
     runs-on: ubuntu-latest
     steps:

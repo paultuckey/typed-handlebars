@@ -515,7 +515,8 @@ impl<'a> Compile<'a> {
             .open_stack
             .pop()
             .ok_or_else(|| ParseError::new("Mismatched block helper", &expression))?;
-        Ok(scope.opened.handle_close(rust))
+        scope.opened.handle_close(rust);
+        Ok(())
     }
 
     /// Opens a block
