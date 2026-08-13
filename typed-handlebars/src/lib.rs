@@ -1,34 +1,26 @@
 //! Compile-time checked [Handlebars](https://handlebarsjs.com/) templates for Rust.
 //!
-//! Your `.hbs` files are the master copy. At build time they become Rust — no parsing, no template
-//! registry and no lookups at run time — and the types they need are generated from what the
-//! template itself says.
+//! Your `.hbs` files are turned into Rust when the crate is built, so there is no parsing, no
+//! template registry and no lookups at run time. The types a template needs are generated from
+//! what the template itself says, so there is nothing to declare, derive or implement.
 //!
-//! This is built for two people:
+//! See the [project README](https://github.com/paultuckey/typed-handlebars#readme) for the goals,
+//! the full table of supported Handlebars constructs, and worked examples of partials and nesting.
 //!
-//! - **Whoever writes the templates needs to know no Rust.** An `.hbs` file is plain Handlebars,
-//!   with no type names, annotations or macro-specific syntax, and it renders the same under
-//!   handlebars.js. A mistake in a template is reported against the template, with a line and
-//!   column.
-//! - **Whoever writes the Rust only does the wiring.** There is nothing to derive and no trait to
-//!   implement. `{{#each rows}}{{ name }}{{/each}}` says `rows` is a list of records with a
-//!   `name`, so that type is generated for you, and your IDE supplies the names instead of you
-//!   retyping them from the template.
+//! # Example
 //!
-//! # Getting started
-//!
-//! Point [`directory!`] at a folder of templates. Given `templates/button.hbs`:
+//! Given `templates/button.hbs`:
 //!
 //! ```handlebars
 //! <button id="btn{{ btn_id }}">{{ btn_name }}</button>
 //! ```
 //!
-//! each file becomes a module with a function named after it. Arguments are positional, in the
-//! order the variables first appear in the template:
+//! [`directory!`] turns each file into a module with a function named after it, taking the
+//! template's variables in the order they first appear:
 //!
 //! ```
 //! mod templates {
-//!     // The real example uses "templates/"; this crate keeps its doc fixtures here.
+//!     // The README uses "templates/"; this crate keeps its doc fixtures here.
 //!     typed_handlebars::directory!("doc-templates/");
 //! }
 //!
@@ -38,26 +30,8 @@
 //! );
 //! ```
 //!
-//! # The builder
-//!
-//! Every template also gets a builder. It is optional, but it names each variable, so argument
-//! order stops mattering and a renamed template variable becomes a compile error rather than a
-//! silently transposed argument:
-//!
-//! ```
-//! mod templates {
-//!     typed_handlebars::directory!("doc-templates/");
-//! }
-//!
-//! let html = templates::button::Builder::new()
-//!     .btn_name("Save")
-//!     .btn_id(42)
-//!     .render();
-//! assert_eq!(html, r#"<button id="btn42">Save</button>"#);
-//! ```
-//!
-//! You set only what you have. Anything left out renders as Handlebars renders an undefined
-//! variable — as nothing, an empty list, or a false condition:
+//! Each template also gets a `Builder`, which names each variable rather than relying on argument
+//! order, and leaves anything unset empty — as an undefined variable is in Handlebars:
 //!
 //! ```
 //! # mod templates { typed_handlebars::directory!("doc-templates/"); }
@@ -67,11 +41,22 @@
 //! );
 //! ```
 //!
+//! # Entry points
+//!
+//! - [`directory!`] — a module per `.hbs` file in a folder, mirroring the directory layout.
+//!   Resolves `{{> partials}}` against that tree.
+//! - [`file!`] — a single template file.
+//! - [`str!`] — a template written inline, for a one-liner or a test. No directory, so no partials.
+//!
+//! A mistake in a template is reported against the `.hbs` file with a line and column, in
+//! Handlebars terms; anything outside the supported subset is a compile error naming the
+//! construct, never a silent difference in output.
+//!
 //! # Rendering
 //!
-//! A template value implements [`Display`](core::fmt::Display), so it can be nested inside another
-//! template or written straight into a buffer you already have — no intermediate `String` per
-//! level:
+//! `render()` returns a `String`, but a template also implements [`Display`](core::fmt::Display)
+//! and exposes `render_to`, so it can be nested inside another template or written straight into a
+//! buffer you already have — with no intermediate `String` per level:
 //!
 //! ```
 //! # mod templates { typed_handlebars::directory!("doc-templates/"); }
@@ -86,18 +71,12 @@
 //! `{{ name }}` is HTML-escaped and `{{{ name }}}` is not, as Handlebars specifies. Markup you
 //! have already rendered goes in `{{{ }}}`.
 //!
-//! # The supported subset
+//! # Items in this crate
 //!
-//! Anything outside the supported subset is a compile error that names the construct — never a
-//! silent difference in output, and never a Rust type error to decode. The README has the full
-//! table of what works, what is not implemented yet, and what is deliberately out of scope
-//! (helpers and runtime template loading).
-//!
-//! # Everything else in this crate
-//!
-//! [`Empty`], [`escape`], [`Escaped`], [`Truthy`], [`Set`] and [`IsSet`] are the runtime support
-//! that generated code calls into. They are public because the generated code names them, not
-//! because you need to: there is nothing here for you to implement.
+//! Apart from the three macros, everything here — [`Empty`], [`escape`], [`Escaped`], [`Truthy`],
+//! [`Set`] and [`IsSet`] — is runtime support that generated code calls into. It is public because
+//! the generated code names it, not because you need to: there is nothing here for you to
+//! implement.
 
 // This crate contains no unsafe code, and generated code never emits any.
 #![forbid(unsafe_code)]
