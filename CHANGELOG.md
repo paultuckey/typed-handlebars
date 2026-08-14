@@ -34,6 +34,8 @@ there is no parsing, registry or lookup at run time.
   written.
 - **Handlebars truthiness** in `{{#if}}` and `{{#unless}}`, so `{{#if title}}{{title}}{{/if}}`
   compiles and behaves. Absent, `false`, `""`, `0` and an empty list are falsy.
+- **`{{@first}}` and `{{@last}}`** inside `{{#each}}`, alongside `{{@index}}`. They work as values
+  and as conditions, so `{{#unless @last}}, {{/unless}}` between items does what it looks like.
 - **Comments in all their forms**, including the trimming closes `{{! … ~}}` and `{{!-- … --~}}`,
   and empty comments (`{{!}}`, `{{!----}}`). A long comment ends at its first close, so a later
   `--~}}` is text.

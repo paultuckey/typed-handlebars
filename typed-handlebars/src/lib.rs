@@ -619,6 +619,126 @@ mod tests {
         );
     }
 
+    /// `{{@first}}` and `{{@last}}` are answered from the same counter `{{@index}}` uses, so they
+    /// render as `true`/`false` and a one-item list is both. Mirrored in `reference-ts`.
+    #[test]
+    fn each_first_and_last() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each xs}}[{{@first}},{{@last}},{{@index}}]{{/each}}"#
+            );
+        }
+        assert_eq!(
+            template::test(vec![1, 2, 3]).render(),
+            "[true,false,0][false,false,1][false,true,2]"
+        );
+
+        mod one {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each xs}}[{{@first}},{{@last}}]{{/each}}"#
+            );
+        }
+        assert_eq!(one::test(vec![9]).render(), "[true,true]");
+    }
+
+    /// Both work as conditions as well as values — `{{#unless @last}}` between items is the reason
+    /// most templates want them.
+    #[test]
+    fn each_first_and_last_are_conditions_too() {
+        mod separator {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each xs}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}"#
+            );
+        }
+        assert_eq!(separator::test(vec![1, 2, 3]).render(), "1, 2, 3");
+
+        mod first_only {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each xs}}{{#if @first}}F{{else}}-{{/if}}{{/each}}"#
+            );
+        }
+        assert_eq!(first_only::test(vec![1, 2, 3]).render(), "F--");
+    }
+
+    /// `../` steps out to the enclosing loop, as it does for `@index`.
+    #[test]
+    fn each_first_reaches_the_enclosing_loop() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each rows}}{{#each cells}}{{@../first}}/{{@first}};{{/each}}|{{/each}}"#
+            );
+        }
+        let rows = vec![
+            template::test::RowsItem::new(vec![1, 2]),
+            template::test::RowsItem::new(vec![3]),
+        ];
+        assert_eq!(
+            template::test(rows).render(),
+            "true/true;true/false;|false/true;|"
+        );
+    }
+
+    /// A block alias is a local in the generated code, and so is the loop counter. They used to be
+    /// able to collide: `as |i|` produced `i_0`, shadowed the `i_0` counter, and the increment then
+    /// landed on the loop item — which the template author saw as `E0368` against their `.hbs`.
+    #[test]
+    fn a_block_alias_cannot_shadow_the_loop_counter() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each xs as |i|}}{{i}}:{{@index}};{{/each}}"#
+            );
+        }
+        assert_eq!(template::test(vec![7, 8]).render(), "7:0;8:1;");
+
+        // The mirror of that: an alias named after a private is a plain variable, not a reference
+        // to `@first`.
+        mod aliased_first {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each xs as |first|}}{{first}};{{/each}}"#
+            );
+        }
+        assert_eq!(aliased_first::test(vec![4, 5]).render(), "4;5;");
+    }
+
+    /// A comment inside an `{{#each}}` used to hang the compiler outright: the scan that decides
+    /// whether the block needs a counter skipped comments with a `continue`, in a loop that
+    /// advances at the bottom.
+    #[test]
+    fn a_comment_inside_each_terminates() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each xs}}{{! why }}[{{this}}]{{/each}}"#
+            );
+        }
+        assert_eq!(template::test(vec![1, 2]).render(), "[1][2]");
+
+        // `{{else}}` is found by the same kind of scan, which had the same bug.
+        mod with_else {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each xs}}{{! why }}[{{this}}]{{else}}none{{/each}}"#
+            );
+        }
+        assert_eq!(with_else::test(Vec::<i32>::new()).render(), "none");
+    }
+
     /// `{{else}}` inside `{{#each}}` covers the empty list. Mirrored in `reference-ts`.
     #[test]
     fn each_else() {

@@ -139,6 +139,30 @@ describe('Handlebars Reference Tests', () => {
         expect(template({ rows: [{ name: "a" }, { name: "b" }] })).toBe('0:a 1:b ');
     });
 
+    it('each_first_and_last', () => {
+        const template = Handlebars.compile('{{#each xs}}[{{@first}},{{@last}},{{@index}}]{{/each}}');
+        expect(template({ xs: [1, 2, 3] }))
+            .toBe('[true,false,0][false,false,1][false,true,2]');
+        // A one-item list is both, which is what makes them a pair of independent tests rather
+        // than "is the index zero".
+        expect(Handlebars.compile('{{#each xs}}[{{@first}},{{@last}}]{{/each}}')({ xs: [9] }))
+            .toBe('[true,true]');
+    });
+
+    it('each_first_and_last_are_conditions_too', () => {
+        const separator = Handlebars.compile('{{#each xs}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}');
+        expect(separator({ xs: [1, 2, 3] })).toBe('1, 2, 3');
+
+        const firstOnly = Handlebars.compile('{{#each xs}}{{#if @first}}F{{else}}-{{/if}}{{/each}}');
+        expect(firstOnly({ xs: [1, 2, 3] })).toBe('F--');
+    });
+
+    it('each_first_reaches_the_enclosing_loop', () => {
+        const template = Handlebars.compile('{{#each rows}}{{#each cells}}{{@../first}}/{{@first}};{{/each}}|{{/each}}');
+        expect(template({ rows: [{ cells: [1, 2] }, { cells: [3] }] }))
+            .toBe('true/true;true/false;|false/true;|');
+    });
+
     it('each_else', () => {
         const template = Handlebars.compile('{{#each rows}}{{name}}{{else}}none{{/each}}');
         expect(template({ rows: [{ name: "a" }] })).toBe('a');

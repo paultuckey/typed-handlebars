@@ -99,7 +99,7 @@ construct, never a silent difference and never a Rust type error you would have 
 | `{{ ../name }}`                             | reaches the enclosing scope                                             |
 | `{{#if}}` / `{{#unless}}` / `{{else}}`      | Handlebars truthiness; testing a variable does not stop you printing it |
 | `{{else if}}` / `{{else unless}}`           | chained onto `{{#if}}` / `{{#unless}}`, to any depth                    |
-| `{{#each rows}}`                            | with `{{this}}`, `{{@index}}`, `{{else}}`, and `as \|row\|`             |
+| `{{#each rows}}`                            | with `{{this}}`, `{{@index}}` `{{@first}}` `{{@last}}`, `{{else}}`, `as \|row\|` |
 | `{{#with person}}`                          | see the divergence below                                                |
 | `{{> row}}`                                 | partials, rendered against the context they were included from          |
 | `{{! … }}` / `{{!-- … --}}`                 | comments, including the trimming closes `{{! … ~}}` and `{{!-- … --~}}` |
@@ -108,7 +108,9 @@ construct, never a silent difference and never a Rust type error you would have 
 
 ### Not yet
 
-`{{@key}}` `{{@value}}` `{{@first}}` `{{@last}}` `{{@root}}` · `{{lookup}}` ·
+`{{@key}}` `{{@value}}` `{{@root}}` · an `{{@…}}` read from inside a nested `{{#if}}` or
+`{{#with}}` (it has to sit directly in the `{{#each}}`, or in a block's opening expression) ·
+`{{lookup}}` ·
 sub-expressions `( … )` · `{{#with}}` with `{{else}}` · partial arguments (`{{> row this}}`) ·
 inline partials (`{{#*inline}}`) · lists that are not slice-backed (`HashMap`,
 `VecDeque`) · handlebars.js's standalone-partial indentation.

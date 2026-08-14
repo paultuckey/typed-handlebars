@@ -397,7 +397,10 @@ fn scan_token(
 }
 
 /// The `@…` variables a block can supply.
-const PRIVATE: [&str; 1] = ["index"];
+///
+/// `key` and `value` are absent on purpose: `{{#each}}` over a map has no type-layer support yet,
+/// so admitting them here would only move the failure to a Rust error.
+const PRIVATE: [&str; 3] = ["index", "first", "last"];
 
 /// Rejects a helper call, rather than emitting a call to a function that does not exist and letting
 /// the Rust compiler complain about it.
