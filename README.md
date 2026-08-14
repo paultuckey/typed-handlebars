@@ -108,9 +108,7 @@ construct, never a silent difference and never a Rust type error you would have 
 
 ### Not yet
 
-`{{@key}}` `{{@value}}` `{{@root}}` · an `{{@…}}` read from inside a nested `{{#if}}` or
-`{{#with}}` (it has to sit directly in the `{{#each}}`, or in a block's opening expression) ·
-`{{lookup}}` ·
+`{{@key}}` `{{@value}}` `{{@root}}` · `{{lookup}}` ·
 sub-expressions `( … )` · `{{#with}}` with `{{else}}` · partial arguments (`{{> row this}}`) ·
 inline partials (`{{#*inline}}`) · lists that are not slice-backed (`HashMap`,
 `VecDeque`) · handlebars.js's standalone-partial indentation.

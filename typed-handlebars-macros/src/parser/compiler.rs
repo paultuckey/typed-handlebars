@@ -215,6 +215,15 @@ pub trait Block {
         Err(ParseError::new("else not expected here", expression))
     }
 
+    /// Whether this block supplies `@…` variables to its body.
+    ///
+    /// Only `{{#each}}` does. `{{#if}}`, `{{#unless}}` and `{{#with}}` are **transparent** to an
+    /// `@…` lookup, as they are in handlebars.js, so a reference inside one belongs to the
+    /// enclosing loop rather than failing. See [`Compile::find_private_scope`].
+    fn supplies_privates(&self) -> bool {
+        false
+    }
+
     /// Whether an `{{else if}}` can chain onto this block.
     ///
     /// Only `{{#if}}` and `{{#unless}}`. The chain compiles to a Rust `else if`, so it needs this
@@ -326,6 +335,50 @@ impl<'a> Compile<'a> {
         Ok((local, scope))
     }
 
+    /// Finds the block that supplies an `@…` variable.
+    ///
+    /// Deliberately not [`Self::find_scope`]. A private lives on a loop, not on a scope, so two
+    /// things differ — both checked against handlebars.js rather than inferred:
+    ///
+    /// - **Blocks that supply nothing are transparent.** `{{#each xs}}{{#if a}}{{@index}}{{/if}}`
+    ///   reads the loop's index; the `{{#if}}` is not in the way.
+    /// - **`../` steps out one loop, not one scope.** With an intervening `{{#if}}` *or*
+    ///   `{{#with}}`, `{{@../index}}` still lands on the enclosing `{{#each}}`.
+    ///
+    /// [`super::block::check_for_privates`] counts a body's nesting the same way, because the two
+    /// have to agree about which loop a reference belongs to.
+    fn find_private_scope(&self, var: &'a str) -> Result<(&'a str, &Scope)> {
+        let mut local = var;
+        let mut index = self.open_stack.len() - 1;
+        let mut stepped_out = false;
+        loop {
+            while !self.open_stack[index].opened.supplies_privates() {
+                if index == 0 {
+                    return Err(ParseError::general(&format!(
+                        "`@{}` {}",
+                        var,
+                        if stepped_out {
+                            "reaches above the outermost `{{#each}}`"
+                        } else {
+                            "is only available inside an `{{#each}}` block"
+                        }
+                    )));
+                }
+                index -= 1;
+            }
+            match local.strip_prefix("../") {
+                Some(rest) => {
+                    local = rest;
+                    stepped_out = true;
+                    // Safe: the loop above only settles on a block that supplies privates, and the
+                    // root scope never does, so `index` is at least 1 here.
+                    index -= 1;
+                }
+                None => return Ok((local, &self.open_stack[index])),
+            }
+        }
+    }
+
     /// Resolves a local variable
     fn resolve_local(
         &self,
@@ -410,7 +463,7 @@ impl<'a> Compile<'a> {
     ) -> Result<()> {
         match var.token_type {
             TokenType::PrivateVariable => {
-                let (name, scope) = self.find_scope(var.value)?;
+                let (name, scope) = self.find_private_scope(var.value)?;
                 scope
                     .opened
                     .resolve_private(scope.depth, expression, name, rust)?;

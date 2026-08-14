@@ -12,4 +12,18 @@ mod private_variable {
     typed_handlebars::str!("page", "{{#each rows}}{{@key}}{{/each}}");
 }
 
+// A private that exists but has no loop to come from. `{{#if}}` is transparent to an `@…` lookup,
+// so the second one reports the missing loop rather than blaming the `{{#if}}`.
+mod private_outside_a_loop {
+    typed_handlebars::str!("page", "{{@index}}");
+}
+
+mod private_with_only_a_conditional_around_it {
+    typed_handlebars::str!("page", "{{#if a}}{{@index}}{{/if}}");
+}
+
+mod private_reaching_past_the_outermost_loop {
+    typed_handlebars::str!("page", "{{#each rows}}{{@../index}}{{/each}}");
+}
+
 fn main() {}

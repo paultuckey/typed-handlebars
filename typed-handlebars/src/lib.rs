@@ -668,6 +668,77 @@ mod tests {
         assert_eq!(first_only::test(vec![1, 2, 3]).render(), "F--");
     }
 
+    /// An `@…` is supplied by the loop, and blocks that supply nothing are transparent to it — so
+    /// reading one from inside a nested `{{#if}}` or `{{#with}}` works. It used to fail with
+    /// `@index not expected`, which made whether an `@…` resolved depend on nothing more than
+    /// when the enclosing block happened to be pushed. Mirrored in `reference-ts`.
+    #[test]
+    fn a_private_is_visible_through_blocks_that_supply_nothing() {
+        mod inside_if {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each xs}}{{#if on}}[{{@index}}]{{/if}}{{/each}}"#
+            );
+        }
+        assert_eq!(
+            inside_if::test(vec![
+                inside_if::test::XsItem::new(true),
+                inside_if::test::XsItem::new(false),
+            ])
+            .render(),
+            "[0]"
+        );
+
+        mod inside_with {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each rows}}{{#with p}}[{{@index}}:{{n}}]{{/with}}{{/each}}"#
+            );
+        }
+        assert_eq!(
+            inside_with::test(vec![
+                inside_with::test::RowsItem::new(inside_with::test::RowsItemP::new("a")),
+                inside_with::test::RowsItem::new(inside_with::test::RowsItemP::new("b")),
+            ])
+            .render(),
+            "[0:a][1:b]"
+        );
+
+        // The chained form, which is where this was most visible: `{{#if @last}}` resolved and
+        // `{{else if @first}}` did not, purely because of when the `{{#if}}` was pushed.
+        mod chained {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each xs}}{{#if @last}}L{{else if @first}}F{{else}}m{{/if}}{{/each}}"#
+            );
+        }
+        assert_eq!(chained::test(vec![1, 2, 3]).render(), "FmL");
+    }
+
+    /// `../` on a private steps out one **loop**, not one scope, so an intervening `{{#if}}` or
+    /// `{{#with}}` does not absorb it. Checked against handlebars.js, which agrees.
+    #[test]
+    fn a_parent_private_steps_out_one_loop_not_one_block() {
+        mod through_if {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each rows}}{{#each cells}}{{#if on}}{{@../index}}{{/if}}{{/each}};{{/each}}"#
+            );
+        }
+        let rows = vec![
+            through_if::test::RowsItem::new(vec![
+                through_if::test::RowsItemCellsItem::new(true),
+                through_if::test::RowsItemCellsItem::new(true),
+            ]),
+            through_if::test::RowsItem::new(vec![through_if::test::RowsItemCellsItem::new(true)]),
+        ];
+        assert_eq!(through_if::test(rows).render(), "00;1;");
+    }
+
     /// `../` steps out to the enclosing loop, as it does for `@index`.
     #[test]
     fn each_first_reaches_the_enclosing_loop() {

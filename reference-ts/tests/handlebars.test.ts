@@ -157,6 +157,31 @@ describe('Handlebars Reference Tests', () => {
         expect(firstOnly({ xs: [1, 2, 3] })).toBe('F--');
     });
 
+    // An `@…` comes from the loop, and blocks that supply nothing are transparent to it. These pin
+    // the rule the Rust lookup was written against.
+    it('a_private_is_visible_through_blocks_that_supply_nothing', () => {
+        const insideIf = Handlebars.compile('{{#each xs}}{{#if on}}[{{@index}}]{{/if}}{{/each}}');
+        expect(insideIf({ xs: [{ on: true }, { on: false }] })).toBe('[0]');
+
+        const insideWith = Handlebars.compile('{{#each rows}}{{#with p}}[{{@index}}:{{n}}]{{/with}}{{/each}}');
+        expect(insideWith({ rows: [{ p: { n: 'a' } }, { p: { n: 'b' } }] })).toBe('[0:a][1:b]');
+
+        const chained = Handlebars.compile('{{#each xs}}{{#if @last}}L{{else if @first}}F{{else}}m{{/if}}{{/each}}');
+        expect(chained({ xs: [1, 2, 3] })).toBe('FmL');
+    });
+
+    // `../` on a private counts loops, not blocks: both of these read the *outer* loop's index
+    // even though a block sits in between.
+    it('a_parent_private_steps_out_one_loop_not_one_block', () => {
+        const throughIf = Handlebars.compile('{{#each rows}}{{#each cells}}{{#if on}}{{@../index}}{{/if}}{{/each}};{{/each}}');
+        expect(throughIf({ rows: [{ cells: [{ on: true }, { on: true }] }, { cells: [{ on: true }] }] }))
+            .toBe('00;1;');
+
+        const throughWith = Handlebars.compile('{{#each rows}}{{#each cells}}{{#with q}}{{@../index}}{{/with}}{{/each}};{{/each}}');
+        expect(throughWith({ rows: [{ cells: [{ q: {} }, { q: {} }] }, { cells: [{ q: {} }] }] }))
+            .toBe('00;1;');
+    });
+
     it('each_first_reaches_the_enclosing_loop', () => {
         const template = Handlebars.compile('{{#each rows}}{{#each cells}}{{@../first}}/{{@first}};{{/each}}|{{/each}}');
         expect(template({ rows: [{ cells: [1, 2] }, { cells: [3] }] }))

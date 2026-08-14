@@ -250,7 +250,7 @@ struct Each {
 /// Scanning for these before the loop is emitted is what lets the counter be declared only when
 /// something actually reads it, so a plain `{{#each}}` compiles to a plain `for`.
 #[derive(Clone, Copy, Default)]
-struct Privates {
+pub(super) struct Privates {
     /// `@index`, `@first` or `@last` — all three are answered from the iteration counter.
     counter: bool,
     /// `@last`, which additionally compares the counter against the list's length.
@@ -291,12 +291,21 @@ fn reads(content: &str, name: &str, mut out: i32) -> bool {
 
 /// Scans a block's body for the `@…` variables it needs this block to supply.
 ///
-/// Stops at the matching close, so a nested block's `{{@index}}` counts against that block rather
+/// Stops at the matching close, so a nested loop's `{{@index}}` counts against that loop rather
 /// than this one.
-fn check_for_privates(src: &str) -> Result<Privates> {
+///
+/// **Nesting is counted in loops, not in blocks.** `{{#if}}`, `{{#unless}}` and `{{#with}}` are
+/// transparent to an `@…` lookup, so a reference inside one still belongs to this block — which is
+/// why the two counters below are not the same number. [`Compile::find_private_scope`] resolves
+/// references the same way, and the two have to agree: this one decides whether the counter is
+/// declared, that one decides what reads it.
+pub(super) fn check_for_privates(src: &str) -> Result<Privates> {
     let mut found = Privates::default();
+    // Whether each still-open nested block was a loop, so a close knows what it ends.
+    let mut opened: Vec<bool> = Vec::new();
+    // How many loops deep the cursor is, relative to the block being scanned.
+    let mut loops = 0;
     let mut exp = Expression::from(src)?;
-    let mut depth = 1;
     while let Some(expr) = &exp {
         match expr.expression_type {
             // A comment's text and a raw block's body are literal, so nothing in them refers to
@@ -305,20 +314,34 @@ fn check_for_privates(src: &str) -> Result<Privates> {
             // `{{#each}}` used to hang the compiler outright.
             ExpressionType::Comment | ExpressionType::Escaped => {}
             ExpressionType::Open => {
-                found.absorb(expr.content, depth - 1);
-                depth += 1;
-            }
-            ExpressionType::Close => {
-                depth -= 1;
-                if depth == 0 {
-                    return Ok(found);
+                // A block's opening expression is evaluated in the scope *around* it, which is why
+                // `{{#if @first}}` reads this block's counter rather than the `{{#if}}`'s.
+                found.absorb(expr.content, loops);
+                let is_loop = opens_a_loop(expr.content)?;
+                opened.push(is_loop);
+                if is_loop {
+                    loops += 1;
                 }
             }
-            _ => found.absorb(expr.content, depth - 1),
+            ExpressionType::Close => match opened.pop() {
+                Some(was_loop) => {
+                    if was_loop {
+                        loops -= 1;
+                    }
+                }
+                // Nothing left to close but the block being scanned.
+                None => return Ok(found),
+            },
+            _ => found.absorb(expr.content, loops),
         }
         exp = expr.next()?;
     }
     Ok(found)
+}
+
+/// Whether an opening expression opens an `{{#each}}` — the only block an `@…` can come from.
+fn opens_a_loop(content: &str) -> Result<bool> {
+    Ok(Token::first(content)?.is_some_and(|head| head.value == "each"))
 }
 
 /// Checks if a block contains an else block
@@ -505,6 +528,12 @@ impl Block for Each {
 
     fn local<'a>(&self) -> &Local {
         &self.local
+    }
+
+    /// `{{#each}}` is the only block an `@…` comes from — see
+    /// [`Compile::find_private_scope`](super::compiler::Compile).
+    fn supplies_privates(&self) -> bool {
+        true
     }
 }
 

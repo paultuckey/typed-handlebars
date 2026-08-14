@@ -36,6 +36,8 @@ there is no parsing, registry or lookup at run time.
   compiles and behaves. Absent, `false`, `""`, `0` and an empty list are falsy.
 - **`{{@first}}` and `{{@last}}`** inside `{{#each}}`, alongside `{{@index}}`. They work as values
   and as conditions, so `{{#unless @last}}, {{/unless}}` between items does what it looks like.
+  An `{{@…}}` can be read from anywhere inside the loop, including from within a nested `{{#if}}`
+  or `{{#with}}`, and `../` steps out one loop rather than one block — both as in handlebars.js.
 - **Comments in all their forms**, including the trimming closes `{{! … ~}}` and `{{!-- … --~}}`,
   and empty comments (`{{!}}`, `{{!----}}`). A long comment ends at its first close, so a later
   `--~}}` is text.
