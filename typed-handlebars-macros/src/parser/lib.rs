@@ -31,8 +31,8 @@
 //! # What is parsed
 //!
 //! - Variables and paths — `{{ name }}`, `{{ person.name }}`, `{{ ../name }}`
-//! - Block helpers — `{{#if}}`, `{{#unless}}`, `{{#each}}`, `{{#with}}`, with `{{else}}` and
-//!   block params (`as |row|`)
+//! - Block helpers — `{{#if}}`, `{{#unless}}`, `{{#each}}`, `{{#with}}`, with `{{else}}`,
+//!   `{{else if}}` and block params (`as |row|`)
 //! - Comments, whitespace control (`{{~ … ~}}`), raw blocks, and escaped `\{{`
 //! - HTML escaping: `{{ }}` escapes, `{{{ }}}` does not
 //!
@@ -66,6 +66,8 @@
 //! - `compiler.rs`: main compiler implementation
 //! - `block.rs`: block helper implementations
 //! - `context.rs`: infers the context shape a template implies (not from rusty-handlebars)
+//! - `else_branch.rs`: reads `{{else}}` and `{{else if}}`, shared by `context.rs` and `compiler.rs`
+//!   so the two agree (not from rusty-handlebars)
 //! - `expression.rs`: expression parsing and evaluation
 //! - `expression_tokenizer.rs`: tokenization of expressions
 //! - `error.rs`: error types, and the positions they report against the `.hbs` file

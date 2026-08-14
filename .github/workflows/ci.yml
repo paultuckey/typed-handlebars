@@ -23,14 +23,33 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  # `directory!` walks the filesystem and turns paths into module paths, so path handling is the one
+  # part of this crate with a real chance of being platform-specific — subdirectory modules, partial
+  # resolution and the crate-relative `.hbs` paths in error messages all go through `Path`. None of
+  # it had ever run off Linux. `fail-fast: false` so one platform failing still reports the others.
   test:
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v6
       - name: Build
         run: cargo build --verbose
       - name: Run tests
-        run: cargo test --verbose
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --workspace --verbose
+      # `trybuild` pins rustc's exact diagnostic *rendering*, which is not guaranteed to be
+      # byte-identical across platforms, so pinning it on one platform is what makes it a stable
+      # expectation. Skipping it here costs no coverage of the thing this matrix is for: every UI
+      # case uses `str!`, so none of them touches a path. A local `cargo test` still runs them
+      # everywhere — this skip is CI-only, and named rather than a substring so it cannot silently
+      # widen to other tests.
+      - name: Run tests (the UI suite is pinned on Linux only)
+        if: matrix.os != 'ubuntu-latest'
+        run: cargo test --workspace --verbose -- --skip wiring_mistakes_are_reported_clearly
 
   # The project goal as a build: someone who has just added the dependency writes only wiring —
   # no `use`, no `#[allow]`, no trait impl — and generated code stays clean under deny lints.

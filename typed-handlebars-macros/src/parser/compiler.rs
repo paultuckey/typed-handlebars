@@ -127,6 +127,7 @@ use std::{
 use regex::{Captures, Regex};
 
 use crate::parser::{
+    else_branch::{self, ElseBranch},
     error::{ParseError, Result},
     expression::{Expression, ExpressionType},
     expression_tokenizer::{Token, TokenType},
@@ -212,6 +213,17 @@ pub trait Block {
     /// Handles else block
     fn handle_else<'a>(&self, expression: &'a Expression<'a>, _rust: &mut Rust) -> Result<()> {
         Err(ParseError::new("else not expected here", expression))
+    }
+
+    /// Whether an `{{else if}}` can chain onto this block.
+    ///
+    /// Only `{{#if}}` and `{{#unless}}`. The chain compiles to a Rust `else if`, so it needs this
+    /// block's own alternative branch to be a plain `else` and its close to be a single `}` —
+    /// which is what makes a chain of any length still close with one brace. `{{#each}}`'s
+    /// `{{else}}` is an emptiness test wrapped in its own scope, so chaining onto it would have to
+    /// nest instead, and `{{#with}}` has no alternative branch at all.
+    fn allows_else_if(&self) -> bool {
+        false
     }
 
     /// Returns the this context
@@ -423,6 +435,65 @@ impl<'a> Compile<'a> {
             Some(scope) => scope.opened.handle_else(expression, rust),
             None => Err(ParseError::new("else not expected here", expression)),
         }
+    }
+
+    /// Handles `{{else}}` and the conditions that chain onto it.
+    ///
+    /// `{{else if b}}` becomes a Rust `else if`, which is an exact match for what Handlebars means
+    /// by it — the chain shares the enclosing block's single closing brace, however long it gets.
+    /// The chained helper decides the sense of the test, so `{{else unless b}}` negates whether or
+    /// not the block it sits in was an `{{#unless}}`.
+    ///
+    /// [`context`](super::context) rejects the unchainable forms before this runs, so the errors
+    /// here are a backstop rather than the message the template author normally sees.
+    fn handle_else_branch(
+        &self,
+        expression: &Expression<'a>,
+        branch: ElseBranch<'a>,
+        rust: &mut Rust,
+    ) -> Result<()> {
+        let keyword = branch.keyword();
+        let (negated, condition) = match branch {
+            ElseBranch::Plain => return self.handle_else(expression, rust),
+            ElseBranch::UnsupportedHelper(helper) => {
+                return Err(ParseError::new(
+                    &format!("`{{{{else {helper}}}}}` is not supported"),
+                    expression,
+                ));
+            }
+            ElseBranch::Chained { negated, condition } => (negated, condition),
+        };
+
+        match self.open_stack.last() {
+            Some(scope) if scope.opened.allows_else_if() => {}
+            Some(_) => {
+                return Err(ParseError::new(
+                    &format!(
+                        "`{{{{{keyword}}}}}` is only supported inside `{{{{#if}}}}` and \
+                         `{{{{#unless}}}}`"
+                    ),
+                    expression,
+                ));
+            }
+            None => return Err(ParseError::new("else not expected here", expression)),
+        }
+
+        let var = Token::first(condition)?.ok_or_else(|| {
+            ParseError::new(
+                &format!("`{{{{{keyword}}}}}` needs something to test"),
+                expression,
+            )
+        })?;
+        // Handlebars truthiness, exactly as `{{#if}}` tests it — see `IfOrUnless::new`.
+        rust.code.push_str("}else if ");
+        if negated {
+            rust.code.push('!');
+        }
+        rust.code.push_str(self.runtime);
+        rust.code.push_str("::Truthy::is_truthy(&");
+        self.write_var(expression, rust, &var)?;
+        rust.code.push_str("){");
+        Ok(())
     }
 
     /// Resolves a lookup expression
@@ -651,14 +722,13 @@ impl Compiler {
             }
             match expression_type {
                 ExpressionType::Raw => pending.push(PendingWrite::Expression(expr, Escaping::None)),
-                ExpressionType::HtmlEscaped => {
-                    if *content == "else" {
+                ExpressionType::HtmlEscaped => match else_branch::classify(content) {
+                    Some(branch) => {
                         self.commit_pending(&mut pending, &mut compile, &mut rust)?;
-                        compile.handle_else(&expr, &mut rust)?
-                    } else {
-                        pending.push(PendingWrite::Expression(expr, Escaping::Html))
+                        compile.handle_else_branch(&expr, branch, &mut rust)?
                     }
-                }
+                    None => pending.push(PendingWrite::Expression(expr, Escaping::Html)),
+                },
                 ExpressionType::Open => {
                     self.commit_pending(&mut pending, &mut compile, &mut rust)?;
                     compile.open(expr, &mut rust)?

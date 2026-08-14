@@ -151,6 +151,59 @@ describe('Handlebars Reference Tests', () => {
         expect(template({ a: true })).toBe('yes');
     });
 
+    it('else_if_chains', () => {
+        const template = Handlebars.compile('{{#if a}}A{{else if b}}B{{else}}C{{/if}}');
+        expect(template({ a: true, b: false })).toBe('A');
+        expect(template({ a: false, b: true })).toBe('B');
+        expect(template({ a: false, b: false })).toBe('C');
+    });
+
+    it('else_if_chains_more_than_once', () => {
+        const template = Handlebars.compile('{{#if a}}A{{else if b}}B{{else if c}}C{{else}}D{{/if}}');
+        expect(template({ c: true })).toBe('C');
+        expect(template({})).toBe('D');
+
+        const noFinalElse = Handlebars.compile('{{#if a}}A{{else if b}}B{{/if}}');
+        expect(noFinalElse({})).toBe('');
+    });
+
+    it('an_else_if_condition_is_truthy_not_bool', () => {
+        const template = Handlebars.compile('{{#if a}}A{{else if name}}[{{name}}]{{else}}C{{/if}}');
+        expect(template({ name: "King" })).toBe('[King]');
+        expect(template({ name: "" })).toBe('C');
+    });
+
+    // The chained helper decides the sense of the test, not the block it sits in. This is the
+    // behaviour the Rust side was written against, so it is worth pinning here rather than
+    // reasoning about it.
+    it('a_chained_helper_sets_its_own_sense', () => {
+        const insideUnless = Handlebars.compile('{{#unless a}}U{{else if b}}B{{else}}C{{/unless}}');
+        expect(insideUnless({ a: false, b: true })).toBe('U');
+        expect(insideUnless({ a: true, b: true })).toBe('B');
+        expect(insideUnless({ a: true, b: false })).toBe('C');
+
+        const elseUnless = Handlebars.compile('{{#if a}}A{{else unless b}}B{{else}}C{{/if}}');
+        expect(elseUnless({})).toBe('B');
+        expect(elseUnless({ b: true })).toBe('C');
+    });
+
+    it('an_else_if_condition_resolves_in_its_own_scope', () => {
+        const dotted = Handlebars.compile('{{#if a}}A{{else if person.name}}B{{else}}C{{/if}}');
+        expect(dotted({ person: { name: "King" } })).toBe('B');
+
+        const inEach = Handlebars.compile('{{#each rows}}{{#if hot}}H{{else if warm}}W{{else}}C{{/if}};{{/each}}');
+        expect(inEach({ rows: [{ hot: true }, { warm: true }, {}] })).toBe('H;W;C;');
+    });
+
+    it('else_may_be_spaced', () => {
+        const template = Handlebars.compile('{{#if a}}A{{ else }}B{{/if}}');
+        expect(template({ a: false })).toBe('B');
+
+        // The word boundary matters: this one is a variable, not a branch.
+        const elsewhere = Handlebars.compile('[{{ elsewhere }}]');
+        expect(elsewhere({ elsewhere: "town" })).toBe('[town]');
+    });
+
     it('each_block_param', () => {
         const template = Handlebars.compile('{{#each rows as |row|}}[{{row.name}}]{{/each}}');
         expect(template({ rows: [{ name: "a" }, { name: "b" }] })).toBe('[a][b]');
@@ -168,7 +221,7 @@ describe('Handlebars Reference Tests', () => {
     });
 
     // KNOWN DIVERGENCE. In handlebars.js a raw block calls a helper of that name and renders
-    // whatever it returns, so with no helper registered the block renders as nothing. dry-handlebars
+    // whatever it returns, so with no helper registered the block renders as nothing. typed-handlebars
     // has no custom helpers, and always passes the content through — i.e. it behaves as though a
     // passthrough helper were registered, which is the second case below.
     it('literal_block_needs_a_helper_in_handlebars_js', () => {

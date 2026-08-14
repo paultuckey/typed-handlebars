@@ -26,6 +26,7 @@
 //!   bare `{{ name }}` falls through to the enclosing scope.
 //! - `{{ ../name }}` walks one scope outwards per `../`.
 
+use crate::parser::else_branch::{self, ElseBranch};
 use crate::parser::error::{ParseError, Result};
 use crate::parser::expression::{Expression, ExpressionType};
 use crate::parser::expression_tokenizer::{Token, TokenType};
@@ -250,10 +251,9 @@ pub fn build(src: &str) -> Result<Context> {
     while let Some(expr) = expression {
         match expr.expression_type {
             ExpressionType::Raw | ExpressionType::HtmlEscaped => {
-                let content = expr.content.trim();
-                if content != "else" {
-                    reject_unsupported(content, &expr)?;
-                    scan_expression(&mut frames, expr.content, Mark::Value, &expr)?;
+                match else_branch::classify(expr.content) {
+                    Some(branch) => scan_else(&mut frames, &opened, branch, &expr)?,
+                    None => scan_expression(&mut frames, expr.content, Mark::Value, &expr)?,
                 }
             }
             ExpressionType::Open => open_block(&mut frames, &mut opened, &expr)?,
@@ -273,19 +273,76 @@ pub fn build(src: &str) -> Result<Context> {
     Ok(frames.pop().expect("root frame is never popped").context)
 }
 
-/// Catches Handlebars this crate does not support yet, before it reaches code generation.
+/// Records what an `{{else …}}` expression needs, and rejects the forms that cannot be chained.
 ///
-/// Without this these become Rust syntax errors in generated code, which say nothing to the person
-/// who wrote the template. Partials are resolved before this point, by
-/// [`crate::assemble`].
-fn reject_unsupported(content: &str, expr: &Expression<'_>) -> Result<()> {
-    if content == "else if" || content.starts_with("else if ") {
+/// A plain `{{else}}` names no data, so there is nothing to record. `{{else if b}}` tests `b`, so
+/// `b` is marked as a condition exactly as `{{#if b}}` would mark it — that is what gives it a
+/// `Truthy` bound rather than forcing it to `bool`.
+///
+/// The two rejections are here rather than in the compiler because this walk runs first, so the
+/// template author gets one error against their `.hbs` file instead of two.
+fn scan_else(
+    frames: &mut [Frame],
+    opened: &[Opened<'_>],
+    branch: ElseBranch<'_>,
+    expr: &Expression<'_>,
+) -> Result<()> {
+    let keyword = branch.keyword();
+    let condition = match branch {
+        ElseBranch::Plain => return Ok(()),
+        ElseBranch::UnsupportedHelper(helper) => {
+            return Err(ParseError::new(
+                &format!(
+                    "`{{{{else {helper}}}}}` is not supported — only `{{{{else if}}}}` and \
+                     `{{{{else unless}}}}` chain onto an `{{{{else}}}}`, because `{{{{#{helper}}}}}` \
+                     opens a scope that the enclosing block's close cannot also close"
+                ),
+                expr,
+            ));
+        }
+        ElseBranch::Chained { condition, .. } => condition,
+    };
+
+    // The chain compiles to a Rust `else if`, which needs the block's own alternative to be a
+    // plain `else`. `{{#each}}`'s is an emptiness test with its own bookkeeping, and `{{#with}}`
+    // has no alternative at all.
+    match opened.last() {
+        Some(block) if block.name == "if" || block.name == "unless" => {}
+        Some(block) => {
+            // `{{#each}}` has an `{{else}}` of its own to nest inside; `{{#with}}` has none.
+            let advice = if block.name == "each" {
+                "inside `{{#each}}`, use a plain `{{else}}` with an `{{#if}}` nested inside it"
+                    .to_string()
+            } else {
+                format!(
+                    "`{{{{#{}}}}}` has no `{{{{else}}}}` branch, so nest an `{{{{#if}}}}` inside it \
+                     instead",
+                    block.name
+                )
+            };
+            return Err(ParseError::new(
+                &format!(
+                    "`{{{{{keyword}}}}}` is only supported inside `{{{{#if}}}}` and \
+                     `{{{{#unless}}}}` — {advice}"
+                ),
+                expr,
+            ));
+        }
+        None => {
+            return Err(ParseError::new(
+                &format!("`{{{{{keyword}}}}}` is not inside a block"),
+                expr,
+            ));
+        }
+    }
+
+    if condition.is_empty() {
         return Err(ParseError::new(
-            "`{{else if}}` is not supported yet — nest an `{{#if}}` inside the `{{else}}` instead",
+            &format!("`{{{{{keyword}}}}}` needs something to test"),
             expr,
         ));
     }
-    Ok(())
+    scan_expression(frames, condition, Mark::Condition, expr)
 }
 
 /// Records every variable an expression reads.

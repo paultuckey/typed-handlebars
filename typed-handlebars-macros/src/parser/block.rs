@@ -33,6 +33,8 @@
 //! ## Conditional Blocks
 //! - `{{#if value}}...{{/if}}` - Renders content if value is truthy
 //! - `{{#unless value}}...{{/unless}}` - Renders content if value is falsy
+//! - `{{else if other}}` - Chains onto either, compiling to a Rust `else if`. See
+//!   [`else_branch`](super::else_branch).
 //!
 //! ## Context Blocks
 //! - `{{#with value as item}}...{{/with}}` - Changes context to value
@@ -55,6 +57,7 @@
 
 use crate::parser::{
     compiler::{Block, BlockFactory, BlockMap, Compile, Local, Rust, append_with_depth},
+    else_branch::{self, ElseBranch},
     error::{ParseError, Result},
     expression::{Expression, ExpressionType},
     expression_tokenizer::Token,
@@ -126,6 +129,13 @@ impl Block for IfOrUnless {
     fn handle_else<'a>(&self, _expression: &'a Expression<'a>, rust: &mut Rust) -> Result<()> {
         rust.code.push_str("}else{");
         Ok(())
+    }
+
+    /// `{{#if}}` and `{{#unless}}` are the two blocks an `{{else if}}` can chain onto — their
+    /// alternative is a plain `else` and their close is a single `}`, which is what lets a chain of
+    /// any length share it.
+    fn allows_else_if(&self) -> bool {
+        true
     }
 }
 
@@ -295,7 +305,9 @@ fn check_for_else(src: &str) -> Result<bool> {
                 }
             }
             _ => {
-                if expr.content == "else" && depth == 1 {
+                // Only a plain `{{else}}` — a chain cannot open on an `{{#each}}` anyway, and the
+                // classifier is what makes `{{ else }}` with spaces count here too.
+                if depth == 1 && else_branch::classify(expr.content) == Some(ElseBranch::Plain) {
                     return Ok(true);
                 }
             }

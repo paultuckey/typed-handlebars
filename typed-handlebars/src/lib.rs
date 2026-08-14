@@ -684,6 +684,165 @@ mod tests {
         );
     }
 
+    /// `{{else if}}` compiles to a Rust `else if`, which is what Handlebars means by it — the whole
+    /// chain shares the one `{{/if}}`. Mirrored in `reference-ts`.
+    #[test]
+    fn else_if_chains() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#if a}}A{{else if b}}B{{else}}C{{/if}}"#
+            );
+        }
+        assert_eq!(template::test(true, false).render(), "A");
+        assert_eq!(template::test(false, true).render(), "B");
+        assert_eq!(template::test(false, false).render(), "C");
+    }
+
+    /// A chain of any length still needs exactly one close, and the last `{{else}}` is optional.
+    #[test]
+    fn else_if_chains_more_than_once() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#if a}}A{{else if b}}B{{else if c}}C{{else}}D{{/if}}"#
+            );
+        }
+        assert_eq!(template::test(false, false, true).render(), "C");
+        assert_eq!(template::test(false, false, false).render(), "D");
+
+        mod no_final_else {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#if a}}A{{else if b}}B{{/if}}"#
+            );
+        }
+        assert_eq!(no_final_else::test(false, false).render(), "");
+    }
+
+    /// The tested variable gets a `Truthy` bound like any other condition, so `{{else if}}` is not
+    /// restricted to `bool` and the variable can still be printed inside its own branch.
+    #[test]
+    fn an_else_if_condition_is_truthy_not_bool() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#if a}}A{{else if name}}[{{name}}]{{else}}C{{/if}}"#
+            );
+        }
+        assert_eq!(template::test(false, "King").render(), "[King]");
+        assert_eq!(
+            template::test(false, "").render(),
+            "C",
+            "empty string is falsy"
+        );
+    }
+
+    /// The chained helper decides the sense of the test, not the block it sits in: an `{{else if}}`
+    /// inside an `{{#unless}}` tests for truth, and `{{else unless}}` negates inside an `{{#if}}`.
+    /// Both checked against handlebars.js.
+    #[test]
+    fn a_chained_helper_sets_its_own_sense() {
+        mod inside_unless {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#unless a}}U{{else if b}}B{{else}}C{{/unless}}"#
+            );
+        }
+        assert_eq!(inside_unless::test(false, true).render(), "U");
+        assert_eq!(inside_unless::test(true, true).render(), "B");
+        assert_eq!(inside_unless::test(true, false).render(), "C");
+
+        mod else_unless {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#if a}}A{{else unless b}}B{{else}}C{{/if}}"#
+            );
+        }
+        assert_eq!(else_unless::test(false, false).render(), "B");
+        assert_eq!(else_unless::test(false, true).render(), "C");
+    }
+
+    /// The condition resolves in the scope the chain sits in, so a dotted path generates a record
+    /// and a chain inside an `{{#each}}` body reads the item.
+    #[test]
+    fn an_else_if_condition_resolves_in_its_own_scope() {
+        mod dotted {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#if a}}A{{else if person.name}}B{{else}}C{{/if}}"#
+            );
+        }
+        assert_eq!(
+            dotted::test(false, dotted::test::Person::new("King")).render(),
+            "B"
+        );
+
+        mod in_each {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#each rows}}{{#if hot}}H{{else if warm}}W{{else}}C{{/if}};{{/each}}"#
+            );
+        }
+        assert_eq!(
+            in_each::test(vec![
+                in_each::test::RowsItem::new(true, false),
+                in_each::test::RowsItem::new(false, true),
+                in_each::test::RowsItem::new(false, false),
+            ])
+            .render(),
+            "H;W;C;"
+        );
+    }
+
+    /// `{{ else }}` is an `else`, not a variable called `else`. It used to be read as a variable by
+    /// the compiler and as an `else` by the type inference, so the two disagreed and the generated
+    /// code referred to a field that was never generated.
+    #[test]
+    fn else_may_be_spaced() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#if a}}A{{ else }}B{{/if}}"#
+            );
+        }
+        assert_eq!(template::test(false).render(), "B");
+
+        // The word-boundary check that makes the above work must not swallow variables.
+        mod elsewhere {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"[{{ elsewhere }}]"#
+            );
+        }
+        assert_eq!(elsewhere::test("town").render(), "[town]");
+    }
+
+    /// Unset means falsy, so a chain reached through the builder behaves as an undefined variable
+    /// does in Handlebars rather than failing to compile.
+    #[test]
+    fn an_unset_else_if_condition_is_falsy() {
+        mod template {
+            crate::str!(
+                "test",
+                //language=handlebars
+                r#"{{#if a}}A{{else if b}}B{{else}}C{{/if}}"#
+            );
+        }
+        assert_eq!(template::test::Builder::new().render(), "C");
+        assert_eq!(template::test::Builder::new().b(true).render(), "B");
+    }
+
     #[test]
     fn with_helper() {
         mod template {
