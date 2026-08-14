@@ -34,6 +34,9 @@ there is no parsing, registry or lookup at run time.
   written.
 - **Handlebars truthiness** in `{{#if}}` and `{{#unless}}`, so `{{#if title}}{{title}}{{/if}}`
   compiles and behaves. Absent, `false`, `""`, `0` and an empty list are falsy.
+- **Comments in all their forms**, including the trimming closes `{{! … ~}}` and `{{!-- … --~}}`,
+  and empty comments (`{{!}}`, `{{!----}}`). A long comment ends at its first close, so a later
+  `--~}}` is text.
 - **`{{else if}}` and `{{else unless}}`**, chained onto `{{#if}}` and `{{#unless}}` to any depth.
   The chained helper sets its own sense, as in handlebars.js, so `{{else if}}` tests for truth even
   inside an `{{#unless}}`. Chaining onto `{{#each}}` or `{{#with}}`, or chaining a block that opens

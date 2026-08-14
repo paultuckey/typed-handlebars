@@ -215,6 +215,32 @@ describe('Handlebars Reference Tests', () => {
             .toBe('King of Studio One;');
     });
 
+    // A comment's trimming close puts the `~` inside the token, which is what made the long form
+    // hard: `--~}}` shares no prefix with `--}}`. These four pin what handlebars.js actually does.
+    it('a_comment_can_trim_the_whitespace_after_it', () => {
+        expect(Handlebars.compile('x{{!-- c --~}}   y')({})).toBe('xy');
+        expect(Handlebars.compile('x{{! c ~}}   y')({})).toBe('xy');
+        expect(Handlebars.compile('x   {{~!-- c --~}}\n\n   y')({})).toBe('xy');
+        // Without the `~` the whitespace stays, which is what makes the rest mean something.
+        expect(Handlebars.compile('x{{!-- c --}}   y')({})).toBe('x   y');
+    });
+
+    it('a_comment_ends_at_its_first_close', () => {
+        expect(Handlebars.compile('x{{!-- a --}} b --~}}   y')({})).toBe('x b --~}}   y');
+    });
+
+    it('a_comment_may_be_empty', () => {
+        expect(Handlebars.compile('x{{!}}y')({})).toBe('xy');
+        expect(Handlebars.compile('x{{!----}}y')({})).toBe('xy');
+        expect(Handlebars.compile('x{{!~}}   y')({})).toBe('xy');
+        // `{{}}` has no name and is not a comment, so it stays a parse error in both.
+        expect(() => Handlebars.compile('x{{}}y')({})).toThrow();
+    });
+
+    it('a_long_comment_swallows_braces_and_stray_tildes', () => {
+        expect(Handlebars.compile('x{{!-- {{a}} and ~}} and -- --}}y')({})).toBe('xy');
+    });
+
     it('whitespace_trimming', () => {
         const template = Handlebars.compile('  {{~#if some ~}}   Hello{{~/if~}}');
         expect(template({ some: true })).toBe('Hello');

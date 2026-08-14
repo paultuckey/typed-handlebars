@@ -119,22 +119,61 @@ impl<'a> Expression<'a> {
         }
     }
 
-    /// Parses a comment expression
+    /// Parses a comment expression.
+    ///
+    /// A comment scans for its own close rather than delegating to [`Self::close`], for two
+    /// reasons.
+    ///
+    /// **The trimming close puts the `~` inside the token.** `{{! … ~}}` and `{{!-- … --~}}` both
+    /// trim the whitespace after the comment, but `close` only recognises a `~` sitting immediately
+    /// *before* the token it was given — so `--~}}` is not a match for `--}}` at all, and a long
+    /// comment closed that way used to read as unclosed.
+    ///
+    /// **A comment has no name.** Every other expression needs one, so `close` rejects an empty
+    /// one; `{{!}}` and `{{!----}}` are valid comments, as they are in handlebars.js.
+    ///
+    /// Whichever close comes first wins, also as in handlebars.js: `{{!-- a --}} b --~}}` ends at
+    /// the `--}}` and leaves ` b --~}}` as text. A trimming token starts one byte before the plain
+    /// token it would otherwise be confused with, so "first wins" prefers it with no special case,
+    /// and the two can never start at the same byte.
     fn check_comment(preffix: &'a str, start: &'a str) -> Result<Self> {
-        if let Some(pos) = start.find("--")
-            && pos == 0
-        {
-            return Self::close(ExpressionType::Comment, preffix, &start[2..], "--}}").map_err(
-                |_| {
-                    // Saying "unclosed block" here sends people looking for a missing `{{/…}}`.
-                    ParseError::general(
-                        "unclosed comment — a `{{!-- … }}` comment has to end with `--}}`",
-                    )
-                    .or_at(start)
-                },
-            );
+        // A long comment may contain `}}`, which is the whole point of the form.
+        let long = start.starts_with("--");
+        let body = if long { &start[2..] } else { start };
+        let (plain, trimming) = if long {
+            ("--}}", "--~}}")
+        } else {
+            ("}}", "~}}")
+        };
+
+        let close = [(plain, false), (trimming, true)]
+            .into_iter()
+            .filter_map(|(end, trims)| body.find(end).map(|at| (at, end, trims)))
+            .min_by_key(|(at, ..)| *at);
+
+        let Some((at, end, trims)) = close else {
+            return Err(if long {
+                // Saying "unclosed block" here sends people looking for a missing `{{/…}}`.
+                ParseError::general(
+                    "unclosed comment — a `{{!-- … }}` comment has to end with `--}}` or `--~}}`",
+                )
+                .or_at(start)
+            } else {
+                ParseError::unclosed(preffix)
+            });
+        };
+
+        let mut postfix = &body[at + end.len()..];
+        if trims {
+            postfix = postfix.trim_start();
         }
-        Self::close(ExpressionType::Comment, preffix, start, "}}")
+        Ok(Self {
+            expression_type: ExpressionType::Comment,
+            prefix: preffix,
+            content: &body[..at],
+            postfix,
+            raw: &body[..at + end.len()],
+        })
     }
 
     /// Finds the closing delimiter for an escaped expression

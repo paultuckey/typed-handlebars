@@ -102,7 +102,7 @@ construct, never a silent difference and never a Rust type error you would have 
 | `{{#each rows}}`                            | with `{{this}}`, `{{@index}}`, `{{else}}`, and `as \|row\|`             |
 | `{{#with person}}`                          | see the divergence below                                                |
 | `{{> row}}`                                 | partials, rendered against the context they were included from          |
-| `{{! … }}` / `{{!-- … --}}`                 | comments                                                                |
+| `{{! … }}` / `{{!-- … --}}`                 | comments, including the trimming closes `{{! … ~}}` and `{{!-- … --~}}` |
 | `{{~ … ~}}`                                 | whitespace trimming                                                     |
 | `\{{ … }}` and `{{{{raw}}}} … {{{{/raw}}}}` | literal output                                                          |
 
@@ -110,7 +110,7 @@ construct, never a silent difference and never a Rust type error you would have 
 
 `{{@key}}` `{{@value}}` `{{@first}}` `{{@last}}` `{{@root}}` · `{{lookup}}` ·
 sub-expressions `( … )` · `{{#with}}` with `{{else}}` · partial arguments (`{{> row this}}`) ·
-inline partials (`{{#*inline}}`) · `{{!-- … --~}}` · lists that are not slice-backed (`HashMap`,
+inline partials (`{{#*inline}}`) · lists that are not slice-backed (`HashMap`,
 `VecDeque`) · handlebars.js's standalone-partial indentation.
 
 ### Out of scope
