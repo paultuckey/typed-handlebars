@@ -98,6 +98,7 @@ construct, never a silent difference and never a Rust type error you would have 
 | `{{ person.name }}`                         | a `person` record is generated                                          |
 | `{{ ../name }}`                             | reaches the enclosing scope                                             |
 | `{{#if}}` / `{{#unless}}` / `{{else}}`      | Handlebars truthiness; testing a variable does not stop you printing it |
+| `{{else if}}` / `{{else unless}}`           | chained onto `{{#if}}` / `{{#unless}}`, to any depth                    |
 | `{{#each rows}}`                            | with `{{this}}`, `{{@index}}`, `{{else}}`, and `as \|row\|`             |
 | `{{#with person}}`                          | see the divergence below                                                |
 | `{{> row}}`                                 | partials, rendered against the context they were included from          |
@@ -107,7 +108,7 @@ construct, never a silent difference and never a Rust type error you would have 
 
 ### Not yet
 
-`{{else if}}` · `{{@key}}` `{{@value}}` `{{@first}}` `{{@last}}` `{{@root}}` · `{{lookup}}` ·
+`{{@key}}` `{{@value}}` `{{@first}}` `{{@last}}` `{{@root}}` · `{{lookup}}` ·
 sub-expressions `( … )` · `{{#with}}` with `{{else}}` · partial arguments (`{{> row this}}`) ·
 inline partials (`{{#*inline}}`) · `{{!-- … --~}}` · lists that are not slice-backed (`HashMap`,
 `VecDeque`) · handlebars.js's standalone-partial indentation.
