@@ -449,6 +449,7 @@ impl<'a> Compile<'a> {
                 content: value,
                 postfix: "",
                 raw,
+                standalone: false,
             },
             rust,
         )
@@ -737,6 +738,7 @@ impl Compiler {
                         content: expression.content,
                         postfix: "",
                         raw: expression.raw,
+                        standalone: false,
                     },
                     rust,
                 )?;
@@ -768,6 +770,7 @@ impl Compiler {
                 content,
                 postfix,
                 raw: _,
+                standalone: _,
             } = &expr;
             rest = postfix;
             if !prefix.is_empty() {

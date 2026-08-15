@@ -38,6 +38,11 @@ there is no parsing, registry or lookup at run time.
   and as conditions, so `{{#unless @last}}, {{/unless}}` between items does what it looks like.
   An `{{@…}}` can be read from anywhere inside the loop, including from within a nested `{{#if}}`
   or `{{#with}}`, and `../` steps out one loop rather than one block — both as in handlebars.js.
+- **Standalone lines.** A line whose only content is a block tag, an `{{else}}` or a comment
+  contributes nothing of its own: its indentation and its trailing newline both go, as in
+  handlebars.js, so a template laid out over several lines renders as written instead of gaining a
+  blank line after every tag. An interpolation is not standalone — `{{ name }}` alone on a line
+  keeps its newline, because it is there to produce output.
 - **Comments in all their forms**, including the trimming closes `{{! … ~}}` and `{{!-- … --~}}`,
   and empty comments (`{{!}}`, `{{!----}}`). A long comment ends at its first close, so a later
   `--~}}` is text.
@@ -63,10 +68,10 @@ there is no parsing, registry or lookup at run time.
   where handlebars.js skips the block. `{{#if}}` and `{{#unless}}` are unaffected.
 - `{{{{raw}}}}…{{{{/raw}}}}` always passes its content through; handlebars.js treats the name as a
   helper and renders nothing when none is registered.
-- Whitespace around standalone lines is kept. In handlebars.js a line whose only content is a block
-  tag, an `{{else}}`, a comment or a partial is removed entirely — its indentation and its trailing
-  newline both — so the tag leaves no trace; here that whitespace stays, and a partial alone on a
-  line is not re-indented. Rendered text is otherwise identical, and `{{~ … ~}}` gives explicit
-  control where the difference matters.
+- A **partial** alone on a line is not standalone, where block tags, `{{else}}` and comments are.
+  Its line keeps its trailing newline, and handlebars.js's re-indenting of the partial's own output
+  is not reproduced — so `{{> row}}` on its own line leaves a blank line behind.
+- A **carriage return** in template text does not survive code generation, so a `.hbs` file saved
+  with CRLF line endings renders with LF.
 
 [Unreleased]: https://github.com/paultuckey/typed-handlebars/compare/v0.1.0...HEAD

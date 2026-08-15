@@ -290,6 +290,60 @@ describe('Handlebars Reference Tests', () => {
         expect(Handlebars.compile('x{{!-- {{a}} and ~}} and -- --}}y')({})).toBe('xy');
     });
 
+    // A tag alone on its line leaves no trace: its indentation and its trailing newline both go.
+    // These pin the rule the Rust implementation was written against; each has a namesake in
+    // `typed-handlebars/tests/standalone.rs`.
+
+    it('a_list_over_several_lines_renders_as_written', () => {
+        const template = Handlebars.compile('<ul>\n{{#each rows}}\n  <li>{{n}}</li>\n{{/each}}\n</ul>');
+        expect(template({ rows: [{ n: 1 }, { n: 2 }] }))
+            .toBe('<ul>\n  <li>1</li>\n  <li>2</li>\n</ul>');
+    });
+
+    it('a_standalone_tag_takes_its_indentation_and_its_newline', () => {
+        expect(Handlebars.compile('a\n{{#if x}}\nB\n{{/if}}\nc')({ x: 1 })).toBe('a\nB\nc');
+        expect(Handlebars.compile('a\n  {{#if x}}\n  B\n  {{/if}}\nc')({ x: 1 })).toBe('a\n  B\nc');
+        expect(Handlebars.compile('a\n\t{{#if x}}\nB\n{{/if}}\nb')({ x: 1 })).toBe('a\nB\nb');
+    });
+
+    it('comments_and_else_stand_alone', () => {
+        expect(Handlebars.compile('a\n{{! hi }}\nc')({})).toBe('a\nc');
+        const branches = Handlebars.compile('a\n{{#if x}}\nB\n{{else}}\nC\n{{/if}}\nd');
+        expect(branches({ x: 1 })).toBe('a\nB\nd');
+        expect(branches({ x: 0 })).toBe('a\nC\nd');
+    });
+
+    // The line between the two halves of the rule: an interpolation is there to produce output,
+    // so its line is real.
+    it('an_interpolation_is_not_standalone', () => {
+        expect(Handlebars.compile('a\n{{n}}\nb')({ n: 'N' })).toBe('a\nN\nb');
+        expect(Handlebars.compile('a\n{{{n}}}\nb')({ n: 'N' })).toBe('a\nN\nb');
+    });
+
+    it('anything_else_on_the_line_cancels_it', () => {
+        expect(Handlebars.compile('a\n{{#if x}} z\nB\n{{/if}}\nc')({ x: 1 })).toBe('a\n z\nB\nc');
+        expect(Handlebars.compile('a\n{{#if x}}{{/if}}\nb')({ x: 1 })).toBe('a\n\nb');
+        expect(Handlebars.compile('a\n{{! c }} {{! d }}\nz')({})).toBe('a\n \nz');
+    });
+
+    it('the_edges_of_the_template_bound_a_line', () => {
+        expect(Handlebars.compile('{{#if x}}\nB\n{{/if}}\nc')({ x: 1 })).toBe('B\nc');
+        expect(Handlebars.compile('  {{#if x}}\nB\n{{/if}}\nc')({ x: 1 })).toBe('B\nc');
+        expect(Handlebars.compile('a\n{{#if x}}\nB\n{{/if}}')({ x: 1 })).toBe('a\nB\n');
+        expect(Handlebars.compile('a\n{{#if x}}\nB\n{{/if}}   ')({ x: 1 })).toBe('a\nB\n');
+        expect(Handlebars.compile('{{! c }}')({})).toBe('');
+    });
+
+    it('standing_alone_carries_forward_to_the_next_tag', () => {
+        expect(Handlebars.compile('a\n{{! c }}\n  {{#if x}}\nB\n{{/if}}\nz')({ x: 1 })).toBe('a\nB\nz');
+        expect(Handlebars.compile('a\n{{! c }}\n{{! d }}\nz')({})).toBe('a\nz');
+        expect(Handlebars.compile('a\n{{! c }}\n{{n}}\nz')({ n: 'N' })).toBe('a\nN\nz');
+    });
+
+    it('only_the_tags_own_newline_is_taken', () => {
+        expect(Handlebars.compile('a\n\n{{! c }}\n\nb')({})).toBe('a\n\n\nb');
+    });
+
     it('whitespace_trimming', () => {
         const template = Handlebars.compile('  {{~#if some ~}}   Hello{{~/if~}}');
         expect(template({ some: true })).toBe('Hello');
