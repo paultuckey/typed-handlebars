@@ -9,6 +9,8 @@ version being released. See [docs/Release.md](docs/Release.md).
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-08-15
+
 First release. `typed-handlebars` turns `.hbs` files into Rust at compile time: the types a
 template needs are generated from what the template itself says, so nothing is declared twice and
 there is no parsing, registry or lookup at run time.
@@ -76,3 +78,4 @@ there is no parsing, registry or lookup at run time.
   with CRLF line endings renders with LF.
 
 [Unreleased]: https://github.com/paultuckey/typed-handlebars/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/paultuckey/typed-handlebars/releases/tag/v0.1.0
