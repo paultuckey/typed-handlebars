@@ -63,6 +63,10 @@ there is no parsing, registry or lookup at run time.
   where handlebars.js skips the block. `{{#if}}` and `{{#unless}}` are unaffected.
 - `{{{{raw}}}}…{{{{/raw}}}}` always passes its content through; handlebars.js treats the name as a
   helper and renders nothing when none is registered.
-- Standalone partials are not re-indented.
+- Whitespace around standalone lines is kept. In handlebars.js a line whose only content is a block
+  tag, an `{{else}}`, a comment or a partial is removed entirely — its indentation and its trailing
+  newline both — so the tag leaves no trace; here that whitespace stays, and a partial alone on a
+  line is not re-indented. Rendered text is otherwise identical, and `{{~ … ~}}` gives explicit
+  control where the difference matters.
 
 [Unreleased]: https://github.com/paultuckey/typed-handlebars/compare/v0.1.0...HEAD

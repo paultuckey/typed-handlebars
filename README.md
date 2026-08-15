@@ -111,7 +111,13 @@ construct, never a silent difference and never a Rust type error you would have 
 `{{@key}}` `{{@value}}` `{{@root}}` · `{{lookup}}` ·
 sub-expressions `( … )` · `{{#with}}` with `{{else}}` · partial arguments (`{{> row this}}`) ·
 inline partials (`{{#*inline}}`) · lists that are not slice-backed (`HashMap`,
-`VecDeque`) · handlebars.js's standalone-partial indentation.
+`VecDeque`).
+
+**Whitespace around standalone lines differs.** In handlebars.js a line whose only content is a
+block tag, an `{{else}}`, a comment or a partial is removed entirely — indentation and trailing
+newline both. Here the surrounding whitespace is kept, so a tag on its own line leaves a blank line
+behind, and a partial alone on a line is not re-indented. Rendered text is otherwise the same;
+`{{~ … ~}}` gives explicit control where it matters.
 
 ### Out of scope
 
