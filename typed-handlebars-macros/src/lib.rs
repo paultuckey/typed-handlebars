@@ -13,6 +13,11 @@
 //! Generated code refers to the runtime crate by whatever name the consumer gave it, so renaming
 //! the dependency is fine.
 
+// The parser and code generator are ordinary safe Rust; the inherited parser carried no unsafe
+// either, and this keeps it that way.
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
+
 mod assemble;
 mod codegen;
 mod parser;
@@ -214,9 +219,8 @@ fn generate_code_for_content(
     // `#[allow]`, and so IDE autocomplete says what each setter is for.
     let module_doc = format!("Types generated from the `{}` template.", template_name);
     let struct_doc = format!("The `{}` template.", template_name);
-    let new_doc = format!(
-        "Creates it from every variable the template uses, in the order it first mentions them."
-    );
+    let new_doc =
+        "Creates it from every variable the template uses, in the order it first mentions them.";
     let fn_doc = format!(
         "Builds the `{}` template. See [`{}::Builder`] to name the variables instead.",
         template_name, template_name
@@ -381,6 +385,7 @@ impl Tree {
 
 // Documented on the re-export in the runtime crate, where the examples can actually run. Docs
 // here would be concatenated onto those by `#[doc(inline)]`, so they are deliberately absent.
+#[allow(missing_docs)]
 #[proc_macro]
 pub fn typed_handlebars_directory(input: TokenStream) -> TokenStream {
     let dir_lit = parse_macro_input!(input as LitStr);
@@ -445,6 +450,7 @@ pub fn typed_handlebars_directory(input: TokenStream) -> TokenStream {
 }
 
 // Documented on the re-export in the runtime crate — see `typed_handlebars_directory` above.
+#[allow(missing_docs)]
 #[proc_macro]
 pub fn typed_handlebars_file(input: TokenStream) -> TokenStream {
     let file_lit = parse_macro_input!(input as LitStr);
@@ -473,6 +479,7 @@ pub fn typed_handlebars_file(input: TokenStream) -> TokenStream {
 }
 
 // Documented on the re-export in the runtime crate — see `typed_handlebars_directory` above.
+#[allow(missing_docs)]
 #[proc_macro]
 pub fn typed_handlebars_str(input: TokenStream) -> TokenStream {
     let StrInput { name, content } = parse_macro_input!(input as StrInput);

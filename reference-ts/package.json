@@ -1,14 +1,13 @@
 {
   "name": "reference-ts",
   "version": "1.0.0",
-  "description": "Reference implementation tests using Handlebars JS",
-  "main": "index.js",
+  "description": "Runs typed-handlebars' supported subset through real handlebars.js, so the Rust side is checked against the language it claims to implement",
+  "private": true,
   "scripts": {
     "test": "vitest run"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Paul Tuckey",
+  "license": "MIT OR Apache-2.0",
   "devDependencies": {
     "typescript": "^5.3.3",
     "vitest": "^1.2.1",

@@ -9,19 +9,56 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
+  # Development.md asks contributors to run both of these, so CI holds the same line rather than
+  # letting the repo drift away from what it tells people to do.
+  lint:
+    name: Format and lints
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Check formatting
+        run: cargo fmt --all --check
+      # `--all-targets` covers tests and the example, not just the two published crates, and
+      # `-D warnings` means a new lint fails the build instead of scrolling past.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # `directory!` walks the filesystem and turns paths into module paths, so path handling is the one
+  # part of this crate with a real chance of being platform-specific — subdirectory modules, partial
+  # resolution and the crate-relative `.hbs` paths in error messages all go through `Path`. None of
+  # it had ever run off Linux. `fail-fast: false` so one platform failing still reports the others.
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Build
         run: cargo build --verbose
       - name: Run tests
-        run: cargo test --verbose
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --workspace --verbose
+      # `trybuild` pins rustc's exact diagnostic *rendering*, which is not guaranteed to be
+      # byte-identical across platforms, so pinning it on one platform is what makes it a stable
+      # expectation. Skipping it here costs no coverage of the thing this matrix is for: every UI
+      # case uses `str!`, so none of them touches a path. A local `cargo test` still runs them
+      # everywhere — this skip is CI-only, and named rather than a substring so it cannot silently
+      # widen to other tests.
+      - name: Run tests (the UI suite is pinned on Linux only)
+        if: matrix.os != 'ubuntu-latest'
+        run: cargo test --workspace --verbose -- --skip wiring_mistakes_are_reported_clearly
 
   # The project goal as a build: someone who has just added the dependency writes only wiring —
   # no `use`, no `#[allow]`, no trait impl — and generated code stays clean under deny lints.
   # It is its own workspace with no committed lockfile, so it also catches the case where a new
   # release of a dependency breaks a fresh install.
+  #
+  # DELIBERATELY UNCACHED. "Fresh install" is the whole job.
   consumer:
     name: Fresh consumer
     runs-on: ubuntu-latest
@@ -31,6 +68,7 @@ jobs:
         working-directory: consumer-test
         run: cargo run --verbose
 
+  # DELIBERATELY UNCACHED, for the same reason as `consumer`.
   parity:
     name: handlebars.js parity
     runs-on: ubuntu-latest
@@ -58,5 +96,11 @@ jobs:
       - uses: actions/checkout@v6
       - name: Install the MSRV toolchain
         run: rustup toolchain install 1.88 --profile minimal
+      # Keyed by hand: the action derives its key from the *default* toolchain, which is stable
+      # here, while the build below uses 1.88. Without this the entry would churn on every stable
+      # release for no reason.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: msrv-1.88
       - name: Check both published crates
         run: cargo +1.88 check -p typed-handlebars -p typed-handlebars-macros --verbose

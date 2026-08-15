@@ -26,6 +26,7 @@
 //!   bare `{{ name }}` falls through to the enclosing scope.
 //! - `{{ ../name }}` walks one scope outwards per `../`.
 
+use crate::parser::else_branch::{self, ElseBranch};
 use crate::parser::error::{ParseError, Result};
 use crate::parser::expression::{Expression, ExpressionType};
 use crate::parser::expression_tokenizer::{Token, TokenType};
@@ -71,6 +72,12 @@ pub struct Context {
     pub fields: Vec<Field>,
     /// The scope itself is written out — `{{ this }}` inside an `{{#each}}` over scalars.
     pub used_as_value: bool,
+    /// The scope itself is tested — `{{#if this}}` inside an `{{#each}}` over scalars.
+    ///
+    /// The counterpart of [`Field::used_as_condition`], and needed for the same reason: without it
+    /// the item's generated parameter carries no `Truthy` bound, and testing the item fails as a
+    /// Rust error against a template that is perfectly good Handlebars.
+    pub used_as_condition: bool,
 }
 
 impl Context {
@@ -164,6 +171,7 @@ impl Context {
     /// one item type.
     fn absorb(&mut self, other: Context) -> Result<()> {
         self.used_as_value |= other.used_as_value;
+        self.used_as_condition |= other.used_as_condition;
         for field in other.fields {
             let index = self.index_of(&field.name);
             let mine = &mut self.fields[index];
@@ -250,10 +258,9 @@ pub fn build(src: &str) -> Result<Context> {
     while let Some(expr) = expression {
         match expr.expression_type {
             ExpressionType::Raw | ExpressionType::HtmlEscaped => {
-                let content = expr.content.trim();
-                if content != "else" {
-                    reject_unsupported(content, &expr)?;
-                    scan_expression(&mut frames, expr.content, Mark::Value, &expr)?;
+                match else_branch::classify(expr.content) {
+                    Some(branch) => scan_else(&mut frames, &opened, branch, &expr)?,
+                    None => scan_expression(&mut frames, expr.content, Mark::Value, &expr)?,
                 }
             }
             ExpressionType::Open => open_block(&mut frames, &mut opened, &expr)?,
@@ -273,19 +280,76 @@ pub fn build(src: &str) -> Result<Context> {
     Ok(frames.pop().expect("root frame is never popped").context)
 }
 
-/// Catches Handlebars this crate does not support yet, before it reaches code generation.
+/// Records what an `{{else …}}` expression needs, and rejects the forms that cannot be chained.
 ///
-/// Without this these become Rust syntax errors in generated code, which say nothing to the person
-/// who wrote the template. Partials are resolved before this point, by
-/// [`crate::assemble`].
-fn reject_unsupported(content: &str, expr: &Expression<'_>) -> Result<()> {
-    if content == "else if" || content.starts_with("else if ") {
+/// A plain `{{else}}` names no data, so there is nothing to record. `{{else if b}}` tests `b`, so
+/// `b` is marked as a condition exactly as `{{#if b}}` would mark it — that is what gives it a
+/// `Truthy` bound rather than forcing it to `bool`.
+///
+/// The two rejections are here rather than in the compiler because this walk runs first, so the
+/// template author gets one error against their `.hbs` file instead of two.
+fn scan_else(
+    frames: &mut [Frame],
+    opened: &[Opened<'_>],
+    branch: ElseBranch<'_>,
+    expr: &Expression<'_>,
+) -> Result<()> {
+    let keyword = branch.keyword();
+    let condition = match branch {
+        ElseBranch::Plain => return Ok(()),
+        ElseBranch::UnsupportedHelper(helper) => {
+            return Err(ParseError::new(
+                &format!(
+                    "`{{{{else {helper}}}}}` is not supported — only `{{{{else if}}}}` and \
+                     `{{{{else unless}}}}` chain onto an `{{{{else}}}}`, because `{{{{#{helper}}}}}` \
+                     opens a scope that the enclosing block's close cannot also close"
+                ),
+                expr,
+            ));
+        }
+        ElseBranch::Chained { condition, .. } => condition,
+    };
+
+    // The chain compiles to a Rust `else if`, which needs the block's own alternative to be a
+    // plain `else`. `{{#each}}`'s is an emptiness test with its own bookkeeping, and `{{#with}}`
+    // has no alternative at all.
+    match opened.last() {
+        Some(block) if block.name == "if" || block.name == "unless" => {}
+        Some(block) => {
+            // `{{#each}}` has an `{{else}}` of its own to nest inside; `{{#with}}` has none.
+            let advice = if block.name == "each" {
+                "inside `{{#each}}`, use a plain `{{else}}` with an `{{#if}}` nested inside it"
+                    .to_string()
+            } else {
+                format!(
+                    "`{{{{#{}}}}}` has no `{{{{else}}}}` branch, so nest an `{{{{#if}}}}` inside it \
+                     instead",
+                    block.name
+                )
+            };
+            return Err(ParseError::new(
+                &format!(
+                    "`{{{{{keyword}}}}}` is only supported inside `{{{{#if}}}}` and \
+                     `{{{{#unless}}}}` — {advice}"
+                ),
+                expr,
+            ));
+        }
+        None => {
+            return Err(ParseError::new(
+                &format!("`{{{{{keyword}}}}}` is not inside a block"),
+                expr,
+            ));
+        }
+    }
+
+    if condition.is_empty() {
         return Err(ParseError::new(
-            "`{{else if}}` is not supported yet — nest an `{{#if}}` inside the `{{else}}` instead",
+            &format!("`{{{{{keyword}}}}}` needs something to test"),
             expr,
         ));
     }
-    Ok(())
+    scan_expression(frames, condition, Mark::Condition, expr)
 }
 
 /// Records every variable an expression reads.
@@ -340,7 +404,10 @@ fn scan_token(
 }
 
 /// The `@…` variables a block can supply.
-const PRIVATE: [&str; 1] = ["index"];
+///
+/// `key` and `value` are absent on purpose: `{{#each}}` over a map has no type-layer support yet,
+/// so admitting them here would only move the failure to a Rust error.
+const PRIVATE: [&str; 3] = ["index", "first", "last"];
 
 /// Rejects a helper call, rather than emitting a call to a function that does not exist and letting
 /// the Rust compiler complain about it.
@@ -380,8 +447,10 @@ fn unsupported(what: &str, expr: &Expression<'_>) -> ParseError {
 fn record(frames: &mut [Frame], var: &str, mark: Mark) -> Result<()> {
     match resolve(frames, var)? {
         Target::Scope(frame) => {
-            if let Mark::Value = mark {
-                frames[frame].context.used_as_value = true;
+            let context = &mut frames[frame].context;
+            match mark {
+                Mark::Value => context.used_as_value = true,
+                Mark::Condition => context.used_as_condition = true,
             }
             Ok(())
         }

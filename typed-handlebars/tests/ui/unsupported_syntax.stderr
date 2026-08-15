@@ -4,14 +4,32 @@ error: `{{> other}}` needs a template directory to look in, and this template ha
 4 |     typed_handlebars::str!("page", "A{{> other}}B");
   |                                    ^^^^^^^^^^^^^^^
 
-error: line 1, column 13: `{{else if}}` is not supported yet — nest an `{{#if}}` inside the `{{else}}` instead
- --> tests/ui/unsupported_syntax.rs:8:36
-  |
-8 |     typed_handlebars::str!("page", "{{#if a}}1{{else if b}}2{{else}}3{{/if}}");
-  |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+error: line 1, column 16: `{{else if}}` is only supported inside `{{#if}}` and `{{#unless}}` — inside `{{#each}}`, use a plain `{{else}}` with an `{{#if}}` nested inside it
+  --> tests/ui/unsupported_syntax.rs:11:36
+   |
+11 |     typed_handlebars::str!("page", "{{#each xs}}1{{else if b}}2{{/each}}");
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: line 1, column 15: `{{else if}}` is only supported inside `{{#if}}` and `{{#unless}}` — `{{#with}}` has no `{{else}}` branch, so nest an `{{#if}}` inside it instead
+  --> tests/ui/unsupported_syntax.rs:15:36
+   |
+15 |     typed_handlebars::str!("page", "{{#with p}}1{{else if b}}2{{/with}}");
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: line 1, column 13: `{{else each}}` is not supported — only `{{else if}}` and `{{else unless}}` chain onto an `{{else}}`, because `{{#each}}` opens a scope that the enclosing block's close cannot also close
+  --> tests/ui/unsupported_syntax.rs:19:36
+   |
+19 |     typed_handlebars::str!("page", "{{#if a}}1{{else each xs}}2{{/if}}");
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: line 1, column 13: `{{else if}}` needs something to test
+  --> tests/ui/unsupported_syntax.rs:23:36
+   |
+23 |     typed_handlebars::str!("page", "{{#if a}}1{{else if}}2{{/if}}");
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error: line 1, column 4: unsupported block helper `wat`
-  --> tests/ui/unsupported_syntax.rs:12:36
+  --> tests/ui/unsupported_syntax.rs:27:36
    |
-12 |     typed_handlebars::str!("page", "{{#wat x}}y{{/wat}}");
+27 |     typed_handlebars::str!("page", "{{#wat x}}y{{/wat}}");
    |                                    ^^^^^^^^^^^^^^^^^^^^^

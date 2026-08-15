@@ -15,3 +15,21 @@ error: line 1, column 17: `@key` is not supported yet
    |
 12 |     typed_handlebars::str!("page", "{{#each rows}}{{@key}}{{/each}}");
    |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: `@index` is only available inside an `{{#each}}` block
+  --> tests/ui/outside_the_subset.rs:18:36
+   |
+18 |     typed_handlebars::str!("page", "{{@index}}");
+   |                                    ^^^^^^^^^^^^
+
+error: `@index` is only available inside an `{{#each}}` block
+  --> tests/ui/outside_the_subset.rs:22:36
+   |
+22 |     typed_handlebars::str!("page", "{{#if a}}{{@index}}{{/if}}");
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: `@../index` reaches above the outermost `{{#each}}`
+  --> tests/ui/outside_the_subset.rs:26:36
+   |
+26 |     typed_handlebars::str!("page", "{{#each rows}}{{@../index}}{{/each}}");
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

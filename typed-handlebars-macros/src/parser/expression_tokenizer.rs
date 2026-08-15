@@ -111,11 +111,7 @@ fn find_end_of_string(src: &str) -> Result<usize> {
     for (i, c) in cliped.char_indices() {
         match c {
             '\\' => escaped = !escaped,
-            '"' => {
-                if !escaped {
-                    return Ok(i + 2);
-                }
-            }
+            '"' if !escaped => return Ok(i + 2),
             _ => (),
         }
     }

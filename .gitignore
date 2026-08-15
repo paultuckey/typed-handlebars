@@ -17,6 +17,7 @@ target
 .idea/
 
 todo.md
+todo-archive.md
 
 # The consumer test stands in for a fresh `cargo add`, so it resolves dependencies from scratch
 # every run rather than replaying a pinned set.
