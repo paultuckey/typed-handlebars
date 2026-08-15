@@ -1,12 +1,12 @@
 error[E0277]: `Heading` cannot be written out by a template
-  --> tests/ui/unwritable_value.rs:13:28
+  --> tests/ui/unwritable_value.rs:15:28
    |
-13 |       let _ = template::page(Heading {
+15 |       let _ = template::page(Heading {
    |  _____________--------------_^
    | |             |
    | |             required by a bound introduced by this call
-14 | |         _text: "Dub".into(),
-15 | |     })
+16 | |         _text: "Dub".into(),
+17 | |     });
    | |_____^ this value has no text to write
    |
 help: the trait `std::fmt::Display` is not implemented for `Heading`
@@ -31,40 +31,13 @@ note: required by a bound in `page`
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `page`
    = note: this error originates in the macro `typed_handlebars::str` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0599]: the method `render` exists for struct `Template<Heading, ViaDisplay>`, but its trait bounds were not satisfied
-  --> tests/ui/unwritable_value.rs:16:6
-   |
- 5 |       typed_handlebars::str!("page", r#"<h1>{{ title }}</h1>"#);
-   |       --------------------------------------------------------- method `render` not found for this struct
-...
- 8 |   struct Heading {
-   |   -------------- doesn't satisfy `Heading: Render<ViaDisplay>` or `Heading: std::fmt::Display`
-...
-13 |       let _ = template::page(Heading {
-   |  _____________-
-14 | |         _text: "Dub".into(),
-15 | |     })
-16 | |     .render();
-   | |     -^^^^^^ method cannot be called on `Template<Heading, ViaDisplay>` due to unsatisfied trait bounds
-   | |_____|
-   |
-   |
-   = note: the following trait bounds were not satisfied:
-           `Heading: std::fmt::Display`
-           which is required by `Heading: Render<ViaDisplay>`
-note: the trait `std::fmt::Display` must be implemented
-  --> $RUST/core/src/fmt/mod.rs
-   |
-   | pub trait Display: PointeeSized {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
 error[E0277]: `Heading` doesn't implement `std::fmt::Display`
-  --> tests/ui/unwritable_value.rs:13:13
+  --> tests/ui/unwritable_value.rs:15:13
    |
-13 |       let _ = template::page(Heading {
+15 |       let _ = template::page(Heading {
    |  _____________^
-14 | |         _text: "Dub".into(),
-15 | |     })
+16 | |         _text: "Dub".into(),
+17 | |     });
    | |______^ unsatisfied trait bound
    |
 help: the trait `std::fmt::Display` is not implemented for `Heading`

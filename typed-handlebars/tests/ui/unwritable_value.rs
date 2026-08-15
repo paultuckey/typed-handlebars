@@ -9,9 +9,10 @@ struct Heading {
     _text: String,
 }
 
+// Not `.render()` — see the note in `tests/ui.rs`: a method-resolution error quotes `Display` out
+// of the standard library, which only renders where `rust-src` is installed.
 fn main() {
     let _ = template::page(Heading {
         _text: "Dub".into(),
-    })
-    .render();
+    });
 }
