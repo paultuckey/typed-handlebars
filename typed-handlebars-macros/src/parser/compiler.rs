@@ -470,8 +470,21 @@ impl<'a> Compile<'a> {
                     .resolve_private(scope.depth, expression, name, rust)?;
             }
             TokenType::Variable => {
-                let (name, scope) = self.find_scope(var.value)?;
-                self.resolve_var(name, scope, rust)?;
+                // `{{ rows.length }}` counts `rows` rather than reading a field off it. The
+                // parenthesis pair is what keeps `.length()` bound to the whole resolved
+                // expression, whatever scope walking turned it into.
+                match var.value.strip_suffix(".length") {
+                    Some(subject) if !subject.is_empty() => {
+                        let (name, scope) = self.find_scope(subject)?;
+                        rust.code.push('(');
+                        self.resolve_var(name, scope, rust)?;
+                        rust.code.push_str(").length()");
+                    }
+                    _ => {
+                        let (name, scope) = self.find_scope(var.value)?;
+                        self.resolve_var(name, scope, rust)?;
+                    }
+                }
             }
             TokenType::Literal => {
                 rust.code.push_str(var.value);

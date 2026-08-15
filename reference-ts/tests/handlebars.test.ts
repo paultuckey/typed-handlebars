@@ -113,6 +113,36 @@ describe('Handlebars Reference Tests', () => {
         expect(items({ tags: ["a", null, "c"] })).toBe('[a][][c]');
     });
 
+    // Mirrors `length.rs` in the Rust suite. `length` is an ordinary property lookup in
+    // handlebars.js that happens to land on the one JS arrays carry — which is why a designer
+    // writes it without thinking, and why the Rust side has to support it.
+    it('a_list_reports_how_many_items_it_holds', () => {
+        const template = Handlebars.compile('[{{ rows.length }}]');
+        expect(template({ rows: [1, 2, 3] })).toBe('[3]');
+        expect(template({ rows: [] })).toBe('[0]');
+    });
+
+    // The distinction the Rust `Absent` type exists for: undefined counts as nothing, where an
+    // empty list counts 0.
+    it('an_unset_list_counts_as_nothing_rather_than_zero', () => {
+        const template = Handlebars.compile('[{{ rows.length }}]');
+        expect(template({})).toBe('[]');
+        expect(template({ rows: undefined })).toBe('[]');
+        expect(template({ rows: [] })).toBe('[0]');
+    });
+
+    it('a_count_can_be_tested', () => {
+        const template = Handlebars.compile('{{#if rows.length}}some{{else}}none{{/if}}');
+        expect(template({ rows: [1] })).toBe('some');
+        expect(template({ rows: [] })).toBe('none');
+        expect(template({})).toBe('none');
+    });
+
+    it('a_list_can_be_counted_and_iterated', () => {
+        const template = Handlebars.compile('{{ rows.length }}:{{#each rows}}{{ name }}{{/each}}');
+        expect(template({ rows: [{ name: "King" }, { name: "Tubby" }] })).toBe('2:KingTubby');
+    });
+
     it('a_list_can_be_tested_and_iterated', () => {
         const template = Handlebars.compile('{{#if rows}}<ul>{{#each rows}}<li>{{name}}</li>{{/each}}</ul>{{/if}}');
         expect(template({ rows: [{ name: "King" }] })).toBe('<ul><li>King</li></ul>');

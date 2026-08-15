@@ -281,7 +281,7 @@ fn generate_code_for_content(
                 // syntax so that method lookup can step through the references a loop body holds.
                 // Anonymous, so it can never collide with a name from the template.
                 #[allow(unused_imports)]
-                use #runtime::RenderExt as _;
+                use #runtime::{Length as _, RenderExt as _};
                 // A template with no variables writes nothing, so the sink can go unused.
                 let _ = &f;
                 #render_body

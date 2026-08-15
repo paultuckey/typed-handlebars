@@ -85,10 +85,10 @@
 //!
 //! # Items in this crate
 //!
-//! Apart from the three macros, everything here — [`Empty`], [`Render`], [`RenderExt`],
-//! [`Escaped`], [`Shown`], [`Truthy`], [`Set`] and [`IsSet`] — is runtime support that generated
-//! code calls into. It is public because the generated code names it, not because you need to:
-//! there is nothing here for you to implement.
+//! Apart from the three macros, everything here — [`Empty`], [`Absent`], [`Render`],
+//! [`RenderExt`], [`Escaped`], [`Shown`], [`Truthy`], [`Length`], [`Set`] and [`IsSet`] — is
+//! runtime support that generated code calls into. It is public because the generated code names
+//! it, not because you need to: there is nothing here for you to implement.
 
 // This crate contains no unsafe code, and generated code never emits any.
 #![forbid(unsafe_code)]
@@ -195,6 +195,106 @@ impl core::fmt::Display for Empty {
 impl<T> AsRef<[T]> for Empty {
     fn as_ref(&self) -> &[T] {
         &[]
+    }
+}
+
+/// A list variable that was never given a value.
+///
+/// [`Empty`] would do, but a list has to name its item type or nothing can infer it, so this is
+/// `Empty` with the item type written down. Generated code uses it; you should never need to name
+/// it.
+///
+/// Absent is not the same as empty, and `{{ rows.length }}` is the one place the difference shows:
+/// a list that was never set counts as nothing, where a list with no items in it counts `0`. That
+/// is what handlebars.js does with an undefined value against an empty array.
+pub struct Absent<T>(core::marker::PhantomData<T>);
+
+impl<T> Absent<T> {
+    /// Creates the absent list.
+    pub fn new() -> Self {
+        Absent(core::marker::PhantomData)
+    }
+}
+
+impl<T> Default for Absent<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> AsRef<[T]> for Absent<T> {
+    fn as_ref(&self) -> &[T] {
+        &[]
+    }
+}
+
+/// How many items `{{ rows.length }}` reports.
+///
+/// This follows handlebars.js, where `length` is an ordinary property lookup and a JS array carries
+/// one. Only lists have it here: a `String` deliberately does not, because JS counts UTF-16 code
+/// units and Rust would count either bytes or `char`s — all three disagree on the same text, and a
+/// quietly different number is exactly what this crate promises never to produce.
+///
+/// [`Count`](Length::Count) is an associated type rather than a plain `usize` so that a list which
+/// was never set can report nothing at all, as an undefined value does in handlebars.js, while a
+/// list with no items in it reports `0`.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` has no `.length` for a template to count",
+    label = "this value is not a list",
+    // Doubled braces: this attribute reads `{…}` as a placeholder, as `format!` does.
+    note = "`{{{{ x.length }}}}` counts a list — a `Vec`, a slice or an array. A `String` has no \
+            `.length` here: JS counts UTF-16 code units and Rust counts bytes or `char`s, so any \
+            answer would silently disagree with handlebars.js"
+)]
+pub trait Length {
+    /// What the count renders as: a number, or nothing at all when the list was never set.
+    type Count: core::fmt::Display + Truthy;
+
+    /// How many items this holds.
+    fn length(&self) -> Self::Count;
+}
+
+impl<T> Length for [T] {
+    type Count = usize;
+    fn length(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<T, const N: usize> Length for [T; N] {
+    type Count = usize;
+    fn length(&self) -> usize {
+        N
+    }
+}
+
+impl<T> Length for Vec<T> {
+    type Count = usize;
+    fn length(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<T: Length + ?Sized> Length for &T {
+    type Count = T::Count;
+    fn length(&self) -> T::Count {
+        (**self).length()
+    }
+}
+
+/// A variable that was never set is absent, and absent has no count — `{{ rows.length }}` writes
+/// nothing, rather than `0`, exactly as it does for an undefined value in handlebars.js.
+impl Length for Empty {
+    type Count = Empty;
+    fn length(&self) -> Empty {
+        Empty
+    }
+}
+
+impl<T> Length for Absent<T> {
+    type Count = Empty;
+    fn length(&self) -> Empty {
+        Empty
     }
 }
 
@@ -344,6 +444,13 @@ impl Truthy for bool {
 
 /// A variable that was never set is absent, and absent is falsy.
 impl Truthy for Empty {
+    fn is_truthy(&self) -> bool {
+        false
+    }
+}
+
+/// A list that was never set is absent, and so is falsy — as an empty list is.
+impl<T> Truthy for Absent<T> {
     fn is_truthy(&self) -> bool {
         false
     }

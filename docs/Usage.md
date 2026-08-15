@@ -34,6 +34,23 @@ This works by value or by reference, in a record, in `{{#each}}`, and through a 
 `Option` it prints. `false` and `0` are values rather than absences, and render as `false` and `0`.
 
 
+## Counting a list
+
+`{{ rows.length }}` counts the list, and the same variable can still be iterated:
+
+```rust
+templates::page(rows).render()   // page.hbs writes {{ rows.length }} and {{#each rows}}
+```
+
+Anything slice-backed counts — `Vec`, an array, a slice, or a reference to one. A `String` does
+not: JS counts UTF-16 code units where Rust counts bytes or `char`s, so it is a compile error
+naming the value rather than a quietly different number. A record field genuinely named `length`
+is unreachable, because `.length` always means the count.
+
+A list left unset on a builder counts as nothing rather than `0`, as an undefined value does in
+handlebars.js. A list you pass with no items in it counts `0`.
+
+
 ## Names Rust would object to
 
 Templates and variables are named by whoever writes the `.hbs` files, so names Rust reserves are

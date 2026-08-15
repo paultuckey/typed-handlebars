@@ -46,7 +46,7 @@ struct Shape {
     /// What each entry of `params` becomes when its field is left unset.
     ///
     /// Needed because `Empty` is a list of *any* item type, so an unset list has to name a concrete
-    /// empty — `[item; 0]` — or the item type cannot be inferred.
+    /// empty — `Absent<item>` — or the item type cannot be inferred.
     param_empties: Vec<TokenStream>,
     /// The subset of `params` that appears in this type's own fields.
     ///
@@ -464,6 +464,11 @@ fn field_type(
             if field.used_as_condition {
                 shape.truthy_params.push(param.clone());
             }
+            // `{{ rows.length }}` with no `{{#each rows}}` anywhere: the template says `rows` is a
+            // list, but never says what is in it, so `Length` is the whole of what it needs.
+            if field.used_as_length {
+                shape.predicates.push(quote! { #param: #runtime::Length });
+            }
             shape
                 .empties
                 .push((empty_type(&runtime), empty_type(&runtime)));
@@ -498,6 +503,9 @@ fn field_type(
                 if item.used_as_condition {
                     shape.truthy_params.push(param.clone());
                 }
+                if item.used_as_length {
+                    shape.predicates.push(quote! { #param: #runtime::Length });
+                }
                 (quote! { #param }, empty_type(&runtime))
             } else {
                 let type_name = format_ident!("{}{}Item", prefix, camel(&field.name));
@@ -513,7 +521,9 @@ fn field_type(
 
             let param = state.next("I");
             shape.params.push(param.clone());
-            shape.param_empties.push(quote! { [#empty_item; 0] });
+            shape
+                .param_empties
+                .push(quote! { #runtime::Absent<#empty_item> });
             shape.field_params.push(param.clone());
             shape
                 .predicates
@@ -521,11 +531,17 @@ fn field_type(
             if field.used_as_condition {
                 shape.truthy_params.push(param.clone());
             }
-            // An unset list has no items. It has to name the item type: `Empty` is a list of
-            // anything, which would leave the item type ambiguous.
-            shape
-                .empties
-                .push((quote! { [#empty_item; 0] }, quote! { [] }));
+            if field.used_as_length {
+                shape.predicates.push(quote! { #param: #runtime::Length });
+            }
+            // An unset list is absent rather than empty, which `{{ rows.length }}` is the one
+            // place to notice: absent counts as nothing where an empty list counts `0`. It has to
+            // name the item type — `Empty` is a list of anything, which would leave the item type
+            // ambiguous — which is what `Absent` is for.
+            shape.empties.push((
+                quote! { #runtime::Absent<#empty_item> },
+                quote! { #runtime::Absent::new() },
+            ));
             quote! { #param }
         }
     }

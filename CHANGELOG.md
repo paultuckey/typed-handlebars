@@ -18,8 +18,23 @@ version being released. See [docs/Release.md](docs/Release.md).
   record, as a `{{#each}}` item, and through a builder setter. `false` and `0` remain values and
   still render as `false` and `0`.
 
+- **`{{ rows.length }}` counts a list**, as it does in handlebars.js, and a variable can be counted
+  and iterated at once. It used to become a record named `Rows` with a `length` field — a type that
+  compiled, asked the caller for something meaningless and rendered the wrong thing — or, when the
+  template also had `{{#each rows}}`, an error claiming `rows` could not be both a list and a
+  record, which in handlebars.js it can. `{{#if rows.length}}` tests the count. Only lists have a
+  `.length`: a `String` is a compile error naming the value, because JS counts UTF-16 code units
+  where Rust counts bytes or `char`s. A record field genuinely named `length` is now unreachable —
+  handlebars.js resolves that by runtime type, and a compile-time generator has to pick one.
+- **A list left unset counts as nothing rather than `0`.** Absent and empty are the same everywhere
+  else, but handlebars.js writes nothing for `undefined.length` and `0` for `[].length`, so the
+  unset placeholder for a list is now `Absent<Item>` rather than `[Item; 0]`.
+
 ### Changed
 
+- **`[…]` path segments are a compile error naming the construct**, rather than silently becoming a
+  record field. This covers indexing (`{{ rows.[0] }}`) and quoted names (`{{ [odd name] }}`);
+  neither is implemented, and both used to generate a nonsense type.
 - **Written values are bound by `Render` rather than `Display`.** A leaf the template writes out
   carries a second, inference-filled marker parameter naming which `Render` impl its value takes,
   held in the type's `PhantomData`. This is what allows an `Option` to render at all: Rust's

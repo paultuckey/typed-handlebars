@@ -96,6 +96,7 @@ construct, never a silent difference and never a Rust type error you would have 
 | `{{ name }}`                                | HTML-escaped                                                            |
 | `{{{ name }}}`                              | raw, for markup you have already rendered                               |
 | `{{ person.name }}`                         | a `person` record is generated                                          |
+| `{{ rows.length }}`                         | how many items; countable and iterable at the same time                 |
 | `{{ ../name }}`                             | reaches the enclosing scope                                             |
 | `{{#if}}` / `{{#unless}}` / `{{else}}`      | Handlebars truthiness; testing a variable does not stop you printing it |
 | `{{else if}}` / `{{else unless}}`           | chained onto `{{#if}}` / `{{#unless}}`, to any depth                    |
@@ -111,8 +112,8 @@ construct, never a silent difference and never a Rust type error you would have 
 
 `{{@key}}` `{{@value}}` `{{@root}}` · `{{lookup}}` ·
 sub-expressions `( … )` · `{{#with}}` with `{{else}}` · partial arguments (`{{> row this}}`) ·
-inline partials (`{{#*inline}}`) · lists that are not slice-backed (`HashMap`,
-`VecDeque`).
+inline partials (`{{#*inline}}`) · `[…]` path segments, both indexing (`{{ rows.[0] }}`) and
+quoted names (`{{ [odd name] }}`) · lists that are not slice-backed (`HashMap`, `VecDeque`).
 
 ### Out of scope
 

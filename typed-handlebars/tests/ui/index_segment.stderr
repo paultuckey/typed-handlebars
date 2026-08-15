@@ -1,0 +1,5 @@
+error: line 1, column 7: a `[…]` path segment such as the `[0]` in `{{ rows.[0] }}` is not supported yet
+ --> tests/ui/index_segment.rs:5:36
+  |
+5 |     typed_handlebars::str!("page", r#"<h1>{{ rows.[0] }}</h1>"#);
+  |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
