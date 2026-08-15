@@ -204,6 +204,7 @@ fn generate_code_for_content(
         nested,
         builder,
         params,
+        decl_params,
         predicates,
         declarations,
         initialisers,
@@ -257,7 +258,7 @@ fn generate_code_for_content(
         #builder
 
         #[doc = #struct_doc]
-        pub struct #struct_name<#(#params),*> #where_clause {
+        pub struct #struct_name<#(#decl_params),*> #where_clause {
             #(#declarations),*
         }
 

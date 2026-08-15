@@ -9,6 +9,26 @@ version being released. See [docs/Release.md](docs/Release.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **A generated type can be named in your own signatures.** Marker parameters are now declared after
+  every value and default to `ViaDisplay`, so `Template<i64, ViaDisplay, bool, &String, ViaDisplay>`
+  is written `Template<i64, bool, &String>`. Markers were interleaved with values, which meant naming
+  a generated type at all meant spelling parameters that exist only for inference — so an application
+  could not write `fn todo_item(&Todo) -> todo::Template<…>` or `impl From<&Todo> for todo::Template<…>`,
+  and had to repeat the wiring at every call site or erase the type behind `impl Display`, which only
+  works when rendering is the last step. Rendering, the builder, and what a template can express are
+  unchanged; error messages also drop the markers, since rustc elides defaulted parameters when it
+  prints a type.
+
+  An `Option` leaf still names its marker — `ViaOption` is not the default — and because a default
+  can only be elided from the right, every marker before it has to be spelled too:
+  `Template<&str, Option<u32>, ViaDisplay, ViaOption>`. Templates with no `Option` leaves elide all
+  of them.
+
+  Breaking for anyone who spells a generated type's parameters today; call sites that let inference
+  do the work are unaffected.
+
 ## [0.2.0] — 2026-08-15
 
 ### Added
