@@ -9,6 +9,8 @@ version being released. See [docs/Release.md](docs/Release.md).
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-08-15
+
 ### Added
 
 - **`Option` renders, and `None` renders as nothing** — as null and undefined do in handlebars.js.
@@ -119,5 +121,6 @@ there is no parsing, registry or lookup at run time.
 - A **carriage return** in template text does not survive code generation, so a `.hbs` file saved
   with CRLF line endings renders with LF.
 
-[Unreleased]: https://github.com/paultuckey/typed-handlebars/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/paultuckey/typed-handlebars/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/paultuckey/typed-handlebars/releases/tag/v0.2.0
 [0.1.0]: https://github.com/paultuckey/typed-handlebars/releases/tag/v0.1.0
