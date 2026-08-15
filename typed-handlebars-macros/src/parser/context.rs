@@ -30,6 +30,7 @@ use crate::parser::else_branch::{self, ElseBranch};
 use crate::parser::error::{ParseError, Result};
 use crate::parser::expression::{Expression, ExpressionType};
 use crate::parser::expression_tokenizer::{Token, TokenType};
+use crate::parser::path;
 
 /// What a template does with a variable, and hence what type it needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -407,6 +408,12 @@ fn scan_token(
             check_segments(token.value, expr)?;
             record(frames, token.value, mark)
         }
+        // `{{@root.title}}` is the one `@…` that names the caller's data rather than loop state.
+        TokenType::PrivateVariable if path::under_root(token.value).is_some() => {
+            let path = path::under_root(token.value).expect("checked by the guard");
+            check_segments(path, expr)?;
+            record_root(frames, path, mark)
+        }
         TokenType::SubExpression(_) => {
             Err(unsupported("a sub-expression like `(helper arg)`", expr))
         }
@@ -448,6 +455,17 @@ fn check_private(name: &str, expr: &Expression<'_>) -> Result<()> {
     if PRIVATE.contains(&name) {
         return Ok(());
     }
+    // `{{@root.title}}` is handled before this; reaching here means the whole context was asked
+    // for, which handlebars.js writes as `[object Object]`. There is nothing useful to emit, and
+    // guessing at one field or another would be worse than saying so.
+    if name == "root" {
+        return Err(ParseError::new(
+            "`{{@root}}` on its own has nothing to write — it is the whole context, which \
+             handlebars.js renders as `[object Object]`. Name something under it, as in \
+             `{{@root.title}}`",
+            expr,
+        ));
+    }
     Err(unsupported(&format!("`@{}`", name), expr))
 }
 
@@ -477,9 +495,9 @@ fn record(frames: &mut [Frame], var: &str, mark: Mark) -> Result<()> {
     // `touch`, because it has to be read off the reference before `../` and block aliases are
     // applied — `{{ row.length }}` inside `{{#each rows as |row|}}` counts the item itself, and by
     // the time the path is resolved that is a scope rather than a field.
-    let (var, mark) = match var.strip_suffix(".length") {
-        Some(subject) if !subject.is_empty() => (subject, Mark::Length),
-        _ => (var, mark),
+    let (var, mark) = match path::counted(var) {
+        Some(subject) => (subject, Mark::Length),
+        None => (var, mark),
     };
     match resolve(frames, var)? {
         Target::Scope(frame) => {
@@ -496,6 +514,20 @@ fn record(frames: &mut [Frame], var: &str, mark: Mark) -> Result<()> {
             frames[frame].context.touch(&path, mark)
         }
     }
+}
+
+/// Notes that the template reads `path` from the top-level context, whatever scope it sits in.
+///
+/// No `resolve` call: `@root` is absolute, so the target is frame 0 by definition. That is what
+/// makes it cheaper than it looks — it never touches the outward walk that `../`, block aliases and
+/// the other `@…` variables all share.
+fn record_root(frames: &mut [Frame], path: &str, mark: Mark) -> Result<()> {
+    let (path, mark) = match path::counted(path) {
+        Some(subject) => (subject, Mark::Length),
+        None => (path, mark),
+    };
+    let segments: Vec<&str> = path.split('.').collect();
+    frames[0].context.touch(&segments, mark)
 }
 
 /// Applies `../` and block aliases to work out what a reference actually points at.
@@ -594,14 +626,33 @@ fn open_block<'a>(
     let alias = read_alias(&subject, expr)?;
     check_segments(subject.value, expr)?;
 
-    let (parent, path) = match resolve(frames, subject.value)? {
-        Target::Field { frame, path } => (frame, path),
-        Target::Scope(_) => {
-            return Err(ParseError::new(
-                &format!("`{{{{#{} this}}}}` is not supported yet", head.value),
-                expr,
-            ));
-        }
+    let (parent, path) = match subject.token_type {
+        // `{{#each @root.rows}}` works in handlebars.js, and needs no new machinery here: `@root`
+        // is frame 0 by definition, which is exactly the pair this match produces. Every other
+        // `@…` is loop state, and iterating one is rejected by name rather than quietly becoming a
+        // record called `index`.
+        TokenType::PrivateVariable => match path::under_root(subject.value) {
+            Some(path) => (0, path.split('.').map(str::to_string).collect()),
+            None => {
+                return Err(unsupported(
+                    &format!(
+                        "`@{}` as the subject of `{{{{#{}}}}}`",
+                        subject.value.trim_start_matches("../"),
+                        head.value
+                    ),
+                    expr,
+                ));
+            }
+        },
+        _ => match resolve(frames, subject.value)? {
+            Target::Field { frame, path } => (frame, path),
+            Target::Scope(_) => {
+                return Err(ParseError::new(
+                    &format!("`{{{{#{} this}}}}` is not supported yet", head.value),
+                    expr,
+                ));
+            }
+        },
     };
 
     {

@@ -18,6 +18,14 @@ version being released. See [docs/Release.md](docs/Release.md).
   record, as a `{{#each}}` item, and through a builder setter. `false` and `0` remain values and
   still render as `false` and `0`.
 
+- **`{{@root.…}}` reaches the template's top-level context** from any depth — inside `{{#each}}`,
+  inside `{{#with}}`, nested in both, and as a block subject (`{{#each @root.rows}}`). Unlike
+  `{{@index}}`, `{{@first}}` and `{{@last}}`, which are loop state, `@root` is absolute:
+  `{{@../root.title}}` reads the same value, as it does in handlebars.js, so the prefix is stripped
+  rather than walked. A partial sees the including template's root. Bare `{{@root}}` is a compile
+  error naming the construct — handlebars.js writes `[object Object]` for the whole context, and
+  there is nothing useful to write instead. Iterating any other `@…` (`{{#each @index}}`) is now a
+  named error too, rather than quietly becoming a record called `index`.
 - **`{{ rows.length }}` counts a list**, as it does in handlebars.js, and a variable can be counted
   and iterated at once. It used to become a record named `Rows` with a `length` field — a type that
   compiled, asked the caller for something meaningless and rendered the wrong thing — or, when the

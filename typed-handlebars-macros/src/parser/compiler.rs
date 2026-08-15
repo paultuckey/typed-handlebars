@@ -131,6 +131,7 @@ use crate::parser::{
     error::{ParseError, Result},
     expression::{Expression, ExpressionType},
     expression_tokenizer::{Token, TokenType},
+    path,
 };
 
 /// Local variable declaration in a block
@@ -463,6 +464,14 @@ impl<'a> Compile<'a> {
         var: &Token<'a>,
     ) -> Result<()> {
         match var.token_type {
+            // `@root` is absolute — it names the top-level scope from any depth — so it is taken
+            // before `find_private_scope`, whose whole job is the outward walk that `@index`,
+            // `@first` and `@last` need and this does not.
+            TokenType::PrivateVariable if path::under_root(var.value).is_some() => {
+                let name = path::under_root(var.value).expect("checked by the guard");
+                let root = &self.open_stack[0];
+                self.write_place(name, root, rust)?;
+            }
             TokenType::PrivateVariable => {
                 let (name, scope) = self.find_private_scope(var.value)?;
                 scope
@@ -470,21 +479,8 @@ impl<'a> Compile<'a> {
                     .resolve_private(scope.depth, expression, name, rust)?;
             }
             TokenType::Variable => {
-                // `{{ rows.length }}` counts `rows` rather than reading a field off it. The
-                // parenthesis pair is what keeps `.length()` bound to the whole resolved
-                // expression, whatever scope walking turned it into.
-                match var.value.strip_suffix(".length") {
-                    Some(subject) if !subject.is_empty() => {
-                        let (name, scope) = self.find_scope(subject)?;
-                        rust.code.push('(');
-                        self.resolve_var(name, scope, rust)?;
-                        rust.code.push_str(").length()");
-                    }
-                    _ => {
-                        let (name, scope) = self.find_scope(var.value)?;
-                        self.resolve_var(name, scope, rust)?;
-                    }
-                }
+                let (name, scope) = self.find_scope(var.value)?;
+                self.write_place(name, scope, rust)?;
             }
             TokenType::Literal => {
                 rust.code.push_str(var.value);
@@ -492,6 +488,23 @@ impl<'a> Compile<'a> {
             TokenType::SubExpression(raw) => {
                 self.resolve_sub_expression(raw, var.value, rust)?;
             }
+        }
+        Ok(())
+    }
+
+    /// Writes one resolved place, counted if the path ends in `.length`.
+    ///
+    /// The parenthesis pair is what keeps `.length()` bound to the whole resolved expression,
+    /// whatever scope walking turned it into — and the call is method syntax rather than
+    /// `Length::length(x)` so that method lookup steps through the reference a loop body holds.
+    fn write_place(&self, name: &'a str, scope: &Scope, rust: &mut Rust) -> Result<()> {
+        match path::counted(name) {
+            Some(subject) => {
+                rust.code.push('(');
+                self.resolve_var(subject, scope, rust)?;
+                rust.code.push_str(").length()");
+            }
+            None => self.resolve_var(name, scope, rust)?,
         }
         Ok(())
     }

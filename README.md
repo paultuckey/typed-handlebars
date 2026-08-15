@@ -91,26 +91,27 @@ construct, never a silent difference and never a Rust type error you would have 
 
 ### Works
 
-| Construct                                   | Notes                                                                   |
-|---------------------------------------------|-------------------------------------------------------------------------|
-| `{{ name }}`                                | HTML-escaped                                                            |
-| `{{{ name }}}`                              | raw, for markup you have already rendered                               |
-| `{{ person.name }}`                         | a `person` record is generated                                          |
-| `{{ rows.length }}`                         | how many items; countable and iterable at the same time                 |
-| `{{ ../name }}`                             | reaches the enclosing scope                                             |
-| `{{#if}}` / `{{#unless}}` / `{{else}}`      | Handlebars truthiness; testing a variable does not stop you printing it |
-| `{{else if}}` / `{{else unless}}`           | chained onto `{{#if}}` / `{{#unless}}`, to any depth                    |
+| Construct                                   | Notes                                                                            |
+|---------------------------------------------|----------------------------------------------------------------------------------|
+| `{{ name }}`                                | HTML-escaped                                                                     |
+| `{{{ name }}}`                              | raw, for markup you have already rendered                                        |
+| `{{ person.name }}`                         | a `person` record is generated                                                   |
+| `{{ rows.length }}`                         | how many items; countable and iterable at the same time                          |
+| `{{ ../name }}`                             | reaches the enclosing scope                                                      |
+| `{{@root.name}}`                            | reaches the top level from any depth; `{{@root}}` alone is an error              |
+| `{{#if}}` / `{{#unless}}` / `{{else}}`      | Handlebars truthiness; testing a variable does not stop you printing it          |
+| `{{else if}}` / `{{else unless}}`           | chained onto `{{#if}}` / `{{#unless}}`, to any depth                             |
 | `{{#each rows}}`                            | with `{{this}}`, `{{@index}}` `{{@first}}` `{{@last}}`, `{{else}}`, `as \|row\|` |
-| `{{#with person}}`                          | see the divergence below                                                |
-| `{{> row}}`                                 | partials, rendered against the context they were included from          |
-| `{{! … }}` / `{{!-- … --}}`                 | comments, including the trimming closes `{{! … ~}}` and `{{!-- … --~}}` |
-| `{{~ … ~}}`                                 | whitespace trimming                                                     |
-| a tag alone on a line                       | indentation and newline go; a partial's indent reaches its every line    |
-| `\{{ … }}` and `{{{{raw}}}} … {{{{/raw}}}}` | literal output                                                          |
+| `{{#with person}}`                          | see the divergence below                                                         |
+| `{{> row}}`                                 | partials, rendered against the context they were included from                   |
+| `{{! … }}` / `{{!-- … --}}`                 | comments, including the trimming closes `{{! … ~}}` and `{{!-- … --~}}`          |
+| `{{~ … ~}}`                                 | whitespace trimming                                                              |
+| a tag alone on a line                       | indentation and newline go; a partial's indent reaches its every line            |
+| `\{{ … }}` and `{{{{raw}}}} … {{{{/raw}}}}` | literal output                                                                   |
 
 ### Not yet
 
-`{{@key}}` `{{@value}}` `{{@root}}` · `{{lookup}}` ·
+`{{@key}}` `{{@value}}` · `{{lookup}}` ·
 sub-expressions `( … )` · `{{#with}}` with `{{else}}` · partial arguments (`{{> row this}}`) ·
 inline partials (`{{#*inline}}`) · `[…]` path segments, both indexing (`{{ rows.[0] }}`) and
 quoted names (`{{ [odd name] }}`) · lists that are not slice-backed (`HashMap`, `VecDeque`).

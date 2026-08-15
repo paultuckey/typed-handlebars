@@ -143,6 +143,36 @@ describe('Handlebars Reference Tests', () => {
         expect(template({ rows: [{ name: "King" }, { name: "Tubby" }] })).toBe('2:KingTubby');
     });
 
+    // Mirrors `root.rs` in the Rust suite. `@root` is absolute where `@index` and friends are loop
+    // state, which is why the Rust side resolves it before the outward walk rather than through it.
+    it('the_top_level_is_reachable_from_any_depth', () => {
+        const ctx = { title: "Dub", rows: [1, 2], person: { name: "King" } };
+        expect(Handlebars.compile('{{#each rows}}[{{@root.title}}]{{/each}}')(ctx)).toBe('[Dub][Dub]');
+        expect(Handlebars.compile('{{#with person}}[{{@root.title}}]{{/with}}')(ctx)).toBe('[Dub]');
+        expect(Handlebars.compile('[{{@root.title}}]')(ctx)).toBe('[Dub]');
+        expect(Handlebars.compile('{{#each rows}}[{{@root.person.name}}]{{/each}}')(ctx)).toBe('[King][King]');
+    });
+
+    // The reason `../` is stripped rather than walked on the Rust side.
+    it('a_parent_prefix_makes_no_difference_to_root', () => {
+        const ctx = { title: "Dub", rows: [1, 2] };
+        expect(Handlebars.compile('{{#each rows}}[{{@../root.title}}]{{/each}}')(ctx)).toBe('[Dub][Dub]');
+    });
+
+    it('the_root_can_be_tested_counted_and_used_as_a_subject', () => {
+        const ctx = { title: "Dub", rows: [{ name: "King" }], person: { name: "Tubby" } };
+        expect(Handlebars.compile('{{#each rows}}[{{#if @root.title}}y{{/if}}]{{/each}}')(ctx)).toBe('[y]');
+        expect(Handlebars.compile('{{#each rows}}[{{@root.rows.length}}]{{/each}}')(ctx)).toBe('[1]');
+        expect(Handlebars.compile('{{#each @root.rows}}[{{ name }}]{{/each}}')(ctx)).toBe('[King]');
+        expect(Handlebars.compile('{{#with @root.person}}[{{ name }}]{{/with}}')(ctx)).toBe('[Tubby]');
+    });
+
+    // Why bare `{{@root}}` is a named error on the Rust side rather than a guess: there is nothing
+    // useful to write for the whole context.
+    it('bare_root_writes_the_object_itself', () => {
+        expect(Handlebars.compile('[{{@root}}]')({ title: "Dub" })).toBe('[[object Object]]');
+    });
+
     it('a_list_can_be_tested_and_iterated', () => {
         const template = Handlebars.compile('{{#if rows}}<ul>{{#each rows}}<li>{{name}}</li>{{/each}}</ul>{{/if}}');
         expect(template({ rows: [{ name: "King" }] })).toBe('<ul><li>King</li></ul>');

@@ -34,6 +34,24 @@ This works by value or by reference, in a record, in `{{#each}}`, and through a 
 `Option` it prints. `false` and `0` are values rather than absences, and render as `false` and `0`.
 
 
+## Reaching the top level
+
+`{{@root.title}}` reads the template's own top-level context from any depth — inside `{{#each}}`,
+inside `{{#with}}`, or nested in both:
+
+```handlebars
+{{#each rows}}<li>{{ name }} — {{@root.title}}</li>{{/each}}
+```
+
+`@root` is absolute, unlike `{{@index}}`, `{{@first}}` and `{{@last}}`, which are loop state:
+`{{@../root.title}}` means exactly the same thing, as it does in handlebars.js. It works as a block
+subject too (`{{#each @root.rows}}`, `{{#with @root.person}}`), and a partial sees the including
+template's root, since a partial renders against the context it was included from.
+
+`{{@root}}` on its own is a compile error — handlebars.js writes `[object Object]` for the whole
+context, and there is nothing useful to write instead.
+
+
 ## Counting a list
 
 `{{ rows.length }}` counts the list, and the same variable can still be iterated:
