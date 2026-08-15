@@ -12,6 +12,7 @@
     "typescript": "^5.5.4",
     "@types/node": "^25.9.3"
   },
+  "//": "We should always test handlebars on latest",
   "dependencies": {
     "handlebars": "latest"
   }
