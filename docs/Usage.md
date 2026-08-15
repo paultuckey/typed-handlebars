@@ -19,6 +19,21 @@ templates::page(rows).render_to(&mut body)?;
 `render()` remains the convenience form and returns a `String`.
 
 
+### Absent values
+
+A variable can be an `Option`, and `None` renders as nothing — as null and undefined do in
+handlebars.js. Nothing in the template says so and nothing at the call site unwraps first, which
+matters because most database columns are nullable:
+
+```rust
+templates::row(row.id, row.guessed_datetime).render()   // Option<String>, None renders as ""
+```
+
+This works by value or by reference, in a record, in `{{#each}}`, and through a builder setter.
+`{{#if}}` asks only whether the value is there, so `{{#if x}}{{ x }}{{/if}}` works on the very
+`Option` it prints. `false` and `0` are values rather than absences, and render as `false` and `0`.
+
+
 ## Names Rust would object to
 
 Templates and variables are named by whoever writes the `.hbs` files, so names Rust reserves are

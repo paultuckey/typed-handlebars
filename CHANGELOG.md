@@ -9,6 +9,25 @@ version being released. See [docs/Release.md](docs/Release.md).
 
 ## [Unreleased]
 
+### Added
+
+- **`Option` renders, and `None` renders as nothing** — as null and undefined do in handlebars.js.
+  `{{ x }}` on a nullable value used to be a compile error, which left `{{#if x}}` working on an
+  `Option` that could not then be printed, and left callers writing
+  `x.as_deref().unwrap_or("")` at the call site. It now works by value or by reference, in a
+  record, as a `{{#each}}` item, and through a builder setter. `false` and `0` remain values and
+  still render as `false` and `0`.
+
+### Changed
+
+- **Written values are bound by `Render` rather than `Display`.** A leaf the template writes out
+  carries a second, inference-filled marker parameter naming which `Render` impl its value takes,
+  held in the type's `PhantomData`. This is what allows an `Option` to render at all: Rust's
+  coherence rules forbid a crate from writing both `impl<T: Display> Render for T` and
+  `impl<T> Render for Option<T>`. Call sites are unaffected — inference fills the marker in — but
+  generated type signatures carry the extra parameter, and `escape` is replaced by
+  `RenderExt::escaped` and `RenderExt::shown`.
+
 ## [0.1.0] — 2026-08-15
 
 First release. `typed-handlebars` turns `.hbs` files into Rust at compile time: the types a

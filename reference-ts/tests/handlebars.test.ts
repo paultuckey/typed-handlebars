@@ -83,6 +83,36 @@ describe('Handlebars Reference Tests', () => {
         expect(template({ value: [1] })).toBe('[yes]');
     });
 
+    // Mirrors `absent.rs` in the Rust suite. This is the definition the Rust `Render` impl for
+    // `Option` is written against: null and undefined write nothing at all, and `false` and `0`
+    // are values that write themselves.
+    it('null_and_undefined_write_nothing', () => {
+        const template = Handlebars.compile('[{{ value }}]');
+        expect(template({ value: null })).toBe('[]');
+        expect(template({ value: undefined })).toBe('[]');
+        expect(template({})).toBe('[]');
+        expect(template({ value: "" })).toBe('[]');
+        expect(template({ value: false })).toBe('[false]');
+        expect(template({ value: 0 })).toBe('[0]');
+        expect(template({ value: "Dub" })).toBe('[Dub]');
+    });
+
+    // The same, unescaped, and one level down in a record.
+    it('null_writes_nothing_raw_or_nested', () => {
+        const raw = Handlebars.compile('[{{{ value }}}]');
+        expect(raw({ value: null })).toBe('[]');
+        const nested = Handlebars.compile('[{{ person.nickname }}]');
+        expect(nested({ person: { nickname: null } })).toBe('[]');
+    });
+
+    // A nullable column across a loop — the case the Rust side accepts an `Option` for.
+    it('null_writes_nothing_inside_each', () => {
+        const rows = Handlebars.compile('{{#each rows}}<td>{{ when }}</td>{{/each}}');
+        expect(rows({ rows: [{ when: "now" }, { when: null }] })).toBe('<td>now</td><td></td>');
+        const items = Handlebars.compile('{{#each tags}}[{{this}}]{{/each}}');
+        expect(items({ tags: ["a", null, "c"] })).toBe('[a][][c]');
+    });
+
     it('a_list_can_be_tested_and_iterated', () => {
         const template = Handlebars.compile('{{#if rows}}<ul>{{#each rows}}<li>{{name}}</li>{{/each}}</ul>{{/if}}');
         expect(template({ rows: [{ name: "King" }] })).toBe('<ul><li>King</li></ul>');

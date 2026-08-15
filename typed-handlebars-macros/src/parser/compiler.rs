@@ -727,10 +727,12 @@ impl Compiler {
         for pending in pending.iter() {
             if let PendingWrite::Expression(expression, escaping) = pending {
                 rust.code.push_str(", ");
-                if let Escaping::Html = escaping {
-                    rust.code.push_str(compile.runtime);
-                    rust.code.push_str("::escape(&");
-                }
+                // Written through `Render` rather than `Display`, so an `Option` writes nothing
+                // instead of failing to compile. Method syntax rather than a call, because a loop
+                // body holds an `&Item` where a field is a plain value, and only method lookup
+                // steps through that difference on its own. The parentheses keep the method bound
+                // to the whole resolved expression.
+                rust.code.push('(');
                 compile.resolve(
                     &Expression {
                         expression_type: ExpressionType::Raw,
@@ -742,9 +744,10 @@ impl Compiler {
                     },
                     rust,
                 )?;
-                if let Escaping::Html = escaping {
-                    rust.code.push(')');
-                }
+                rust.code.push_str(match escaping {
+                    Escaping::Html => ").escaped()",
+                    Escaping::None => ").shown()",
+                });
             }
         }
         rust.code.push_str(")?;");
