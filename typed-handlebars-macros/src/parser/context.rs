@@ -30,6 +30,7 @@ use crate::parser::else_branch::{self, ElseBranch};
 use crate::parser::error::{ParseError, Result};
 use crate::parser::expression::{Expression, ExpressionType};
 use crate::parser::expression_tokenizer::{Token, TokenType};
+use crate::parser::path;
 
 /// What a template does with a variable, and hence what type it needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +53,8 @@ pub struct Field {
     pub used_as_value: bool,
     /// Tested somewhere — `{{#if name}}` or `{{#unless name}}`.
     pub used_as_condition: bool,
+    /// Counted somewhere — `{{ name.length }}`, which makes it a list rather than a record.
+    pub used_as_length: bool,
 }
 
 impl Field {
@@ -61,6 +64,7 @@ impl Field {
             kind: FieldKind::Leaf,
             used_as_value: false,
             used_as_condition: false,
+            used_as_length: false,
         }
     }
 }
@@ -78,6 +82,8 @@ pub struct Context {
     /// the item's generated parameter carries no `Truthy` bound, and testing the item fails as a
     /// Rust error against a template that is perfectly good Handlebars.
     pub used_as_condition: bool,
+    /// The scope itself is counted — `{{ this.length }}` inside an `{{#each}}` over lists.
+    pub used_as_length: bool,
 }
 
 impl Context {
@@ -148,6 +154,7 @@ impl Context {
         match mark {
             Mark::Value => self.fields[index].used_as_value = true,
             Mark::Condition => self.fields[index].used_as_condition = true,
+            Mark::Length => self.fields[index].used_as_length = true,
         }
         Ok(())
     }
@@ -172,11 +179,13 @@ impl Context {
     fn absorb(&mut self, other: Context) -> Result<()> {
         self.used_as_value |= other.used_as_value;
         self.used_as_condition |= other.used_as_condition;
+        self.used_as_length |= other.used_as_length;
         for field in other.fields {
             let index = self.index_of(&field.name);
             let mine = &mut self.fields[index];
             mine.used_as_value |= field.used_as_value;
             mine.used_as_condition |= field.used_as_condition;
+            mine.used_as_length |= field.used_as_length;
             let existing = std::mem::replace(&mut mine.kind, FieldKind::Leaf);
             mine.kind = merge(&field.name, existing, field.kind)?;
         }
@@ -210,6 +219,8 @@ fn merge(name: &str, existing: FieldKind, incoming: FieldKind) -> Result<FieldKi
 enum Mark {
     Value,
     Condition,
+    /// `{{ rows.length }}` — how many items, not a field called `length`.
+    Length,
 }
 
 /// Where a template reference points once `../` and any block alias have been applied.
@@ -393,7 +404,16 @@ fn scan_token(
     expr: &Expression<'_>,
 ) -> Result<()> {
     match token.token_type {
-        TokenType::Variable => record(frames, token.value, mark),
+        TokenType::Variable => {
+            check_segments(token.value, expr)?;
+            record(frames, token.value, mark)
+        }
+        // `{{@root.title}}` is the one `@…` that names the caller's data rather than loop state.
+        TokenType::PrivateVariable if path::under_root(token.value).is_some() => {
+            let path = path::under_root(token.value).expect("checked by the guard");
+            check_segments(path, expr)?;
+            record_root(frames, path, mark)
+        }
         TokenType::SubExpression(_) => {
             Err(unsupported("a sub-expression like `(helper arg)`", expr))
         }
@@ -435,6 +455,17 @@ fn check_private(name: &str, expr: &Expression<'_>) -> Result<()> {
     if PRIVATE.contains(&name) {
         return Ok(());
     }
+    // `{{@root.title}}` is handled before this; reaching here means the whole context was asked
+    // for, which handlebars.js writes as `[object Object]`. There is nothing useful to emit, and
+    // guessing at one field or another would be worse than saying so.
+    if name == "root" {
+        return Err(ParseError::new(
+            "`{{@root}}` on its own has nothing to write — it is the whole context, which \
+             handlebars.js renders as `[object Object]`. Name something under it, as in \
+             `{{@root.title}}`",
+            expr,
+        ));
+    }
     Err(unsupported(&format!("`@{}`", name), expr))
 }
 
@@ -443,14 +474,38 @@ fn unsupported(what: &str, expr: &Expression<'_>) -> ParseError {
     ParseError::new(&format!("{} is not supported yet", what), expr)
 }
 
+/// Rejects a `[…]` path segment by name.
+///
+/// Handlebars uses these for indexing — `{{ rows.[0] }}` — and for names that are not identifiers.
+/// Neither is implemented, and left alone they would quietly become a record field named `[0]`:
+/// a type that compiles, asks the caller for something meaningless, and renders the wrong thing.
+fn check_segments(var: &str, expr: &Expression<'_>) -> Result<()> {
+    if var.contains('[') {
+        return Err(unsupported(
+            "a `[…]` path segment such as the `[0]` in `{{ rows.[0] }}`",
+            expr,
+        ));
+    }
+    Ok(())
+}
+
 /// Notes that the template reads `var`, in whichever scope `var` resolves to.
 fn record(frames: &mut [Frame], var: &str, mark: Mark) -> Result<()> {
+    // `{{ rows.length }}` is a count of `rows`, not a field of it. Handled here rather than in
+    // `touch`, because it has to be read off the reference before `../` and block aliases are
+    // applied — `{{ row.length }}` inside `{{#each rows as |row|}}` counts the item itself, and by
+    // the time the path is resolved that is a scope rather than a field.
+    let (var, mark) = match path::counted(var) {
+        Some(subject) => (subject, Mark::Length),
+        None => (var, mark),
+    };
     match resolve(frames, var)? {
         Target::Scope(frame) => {
             let context = &mut frames[frame].context;
             match mark {
                 Mark::Value => context.used_as_value = true,
                 Mark::Condition => context.used_as_condition = true,
+                Mark::Length => context.used_as_length = true,
             }
             Ok(())
         }
@@ -459,6 +514,20 @@ fn record(frames: &mut [Frame], var: &str, mark: Mark) -> Result<()> {
             frames[frame].context.touch(&path, mark)
         }
     }
+}
+
+/// Notes that the template reads `path` from the top-level context, whatever scope it sits in.
+///
+/// No `resolve` call: `@root` is absolute, so the target is frame 0 by definition. That is what
+/// makes it cheaper than it looks — it never touches the outward walk that `../`, block aliases and
+/// the other `@…` variables all share.
+fn record_root(frames: &mut [Frame], path: &str, mark: Mark) -> Result<()> {
+    let (path, mark) = match path::counted(path) {
+        Some(subject) => (subject, Mark::Length),
+        None => (path, mark),
+    };
+    let segments: Vec<&str> = path.split('.').collect();
+    frames[0].context.touch(&segments, mark)
 }
 
 /// Applies `../` and block aliases to work out what a reference actually points at.
@@ -555,15 +624,35 @@ fn open_block<'a>(
     })?;
 
     let alias = read_alias(&subject, expr)?;
+    check_segments(subject.value, expr)?;
 
-    let (parent, path) = match resolve(frames, subject.value)? {
-        Target::Field { frame, path } => (frame, path),
-        Target::Scope(_) => {
-            return Err(ParseError::new(
-                &format!("`{{{{#{} this}}}}` is not supported yet", head.value),
-                expr,
-            ));
-        }
+    let (parent, path) = match subject.token_type {
+        // `{{#each @root.rows}}` works in handlebars.js, and needs no new machinery here: `@root`
+        // is frame 0 by definition, which is exactly the pair this match produces. Every other
+        // `@…` is loop state, and iterating one is rejected by name rather than quietly becoming a
+        // record called `index`.
+        TokenType::PrivateVariable => match path::under_root(subject.value) {
+            Some(path) => (0, path.split('.').map(str::to_string).collect()),
+            None => {
+                return Err(unsupported(
+                    &format!(
+                        "`@{}` as the subject of `{{{{#{}}}}}`",
+                        subject.value.trim_start_matches("../"),
+                        head.value
+                    ),
+                    expr,
+                ));
+            }
+        },
+        _ => match resolve(frames, subject.value)? {
+            Target::Field { frame, path } => (frame, path),
+            Target::Scope(_) => {
+                return Err(ParseError::new(
+                    &format!("`{{{{#{} this}}}}` is not supported yet", head.value),
+                    expr,
+                ));
+            }
+        },
     };
 
     {

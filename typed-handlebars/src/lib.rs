@@ -71,12 +71,24 @@
 //! `{{ name }}` is HTML-escaped and `{{{ name }}}` is not, as Handlebars specifies. Markup you
 //! have already rendered goes in `{{{ }}}`.
 //!
+//! A variable can be an `Option`, and `None` writes nothing — as null and undefined do in
+//! handlebars.js — so a nullable column needs no unwrapping on the way in:
+//!
+//! ```
+//! # mod templates { typed_handlebars::directory!("doc-templates/"); }
+//! let missing: Option<&str> = None;
+//! assert_eq!(
+//!     templates::button(42, missing).render(),
+//!     r#"<button id="btn42"></button>"#
+//! );
+//! ```
+//!
 //! # Items in this crate
 //!
-//! Apart from the three macros, everything here — [`Empty`], [`escape`], [`Escaped`], [`Truthy`],
-//! [`Set`] and [`IsSet`] — is runtime support that generated code calls into. It is public because
-//! the generated code names it, not because you need to: there is nothing here for you to
-//! implement.
+//! Apart from the three macros, everything here — [`Empty`], [`Absent`], [`Render`],
+//! [`RenderExt`], [`Escaped`], [`Shown`], [`Truthy`], [`Length`], [`Set`] and [`IsSet`] — is
+//! runtime support that generated code calls into. It is public because the generated code names
+//! it, not because you need to: there is nothing here for you to implement.
 
 // This crate contains no unsafe code, and generated code never emits any.
 #![forbid(unsafe_code)]
@@ -186,28 +198,212 @@ impl<T> AsRef<[T]> for Empty {
     }
 }
 
-/// Wraps a value so that `{{ }}` writes it HTML-escaped.
+/// A list variable that was never given a value.
 ///
-/// Generated code calls this; you should never need to name it. Escaping happens as the value is
-/// written, so nothing is allocated on the way.
-pub fn escape<T: core::fmt::Display + ?Sized>(value: &T) -> Escaped<'_, T> {
-    Escaped(value)
+/// [`Empty`] would do, but a list has to name its item type or nothing can infer it, so this is
+/// `Empty` with the item type written down. Generated code uses it; you should never need to name
+/// it.
+///
+/// Absent is not the same as empty, and `{{ rows.length }}` is the one place the difference shows:
+/// a list that was never set counts as nothing, where a list with no items in it counts `0`. That
+/// is what handlebars.js does with an undefined value against an empty array.
+pub struct Absent<T>(core::marker::PhantomData<T>);
+
+impl<T> Absent<T> {
+    /// Creates the absent list.
+    pub fn new() -> Self {
+        Absent(core::marker::PhantomData)
+    }
 }
 
-/// The HTML-escaping wrapper produced by [`escape`].
-pub struct Escaped<'a, T: ?Sized>(&'a T);
+impl<T> Default for Absent<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-impl<T: core::fmt::Display + ?Sized> core::fmt::Display for Escaped<'_, T> {
+impl<T> AsRef<[T]> for Absent<T> {
+    fn as_ref(&self) -> &[T] {
+        &[]
+    }
+}
+
+/// How many items `{{ rows.length }}` reports.
+///
+/// This follows handlebars.js, where `length` is an ordinary property lookup and a JS array carries
+/// one. Only lists have it here: a `String` deliberately does not, because JS counts UTF-16 code
+/// units and Rust would count either bytes or `char`s — all three disagree on the same text, and a
+/// quietly different number is exactly what this crate promises never to produce.
+///
+/// [`Count`](Length::Count) is an associated type rather than a plain `usize` so that a list which
+/// was never set can report nothing at all, as an undefined value does in handlebars.js, while a
+/// list with no items in it reports `0`.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` has no `.length` for a template to count",
+    label = "this value is not a list",
+    // Doubled braces: this attribute reads `{…}` as a placeholder, as `format!` does.
+    note = "`{{{{ x.length }}}}` counts a list — a `Vec`, a slice or an array. A `String` has no \
+            `.length` here: JS counts UTF-16 code units and Rust counts bytes or `char`s, so any \
+            answer would silently disagree with handlebars.js"
+)]
+pub trait Length {
+    /// What the count renders as: a number, or nothing at all when the list was never set.
+    type Count: core::fmt::Display + Truthy;
+
+    /// How many items this holds.
+    fn length(&self) -> Self::Count;
+}
+
+impl<T> Length for [T] {
+    type Count = usize;
+    fn length(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<T, const N: usize> Length for [T; N] {
+    type Count = usize;
+    fn length(&self) -> usize {
+        N
+    }
+}
+
+impl<T> Length for Vec<T> {
+    type Count = usize;
+    fn length(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<T: Length + ?Sized> Length for &T {
+    type Count = T::Count;
+    fn length(&self) -> T::Count {
+        (**self).length()
+    }
+}
+
+/// A variable that was never set is absent, and absent has no count — `{{ rows.length }}` writes
+/// nothing, rather than `0`, exactly as it does for an undefined value in handlebars.js.
+impl Length for Empty {
+    type Count = Empty;
+    fn length(&self) -> Empty {
+        Empty
+    }
+}
+
+impl<T> Length for Absent<T> {
+    type Count = Empty;
+    fn length(&self) -> Empty {
+        Empty
+    }
+}
+
+/// How a value is written by `{{ }}` and `{{{ }}}`.
+///
+/// Anything that implements [`Display`](core::fmt::Display) is written as it displays. `Option` is
+/// the exception, and the reason this trait exists rather than a plain `Display` bound: handlebars.js
+/// writes nothing at all for a value that is null or undefined, so `None` writes nothing here too —
+/// exactly as [`Empty`] does for a variable that was never set.
+///
+/// `K` says *which* of those routes a value took. It is a marker type, filled in by inference and
+/// never written by hand: `Option<T>` cannot go through `Display`, and everything else cannot go
+/// through the `Option` impl, so exactly one route ever fits. It has to be a type parameter rather
+/// than one blanket impl with a special case inside, because Rust's coherence rules forbid a crate
+/// from writing both `impl<T: Display> Render for T` and `impl<T> Render for Option<T>`.
+///
+/// Every type you would reasonably pass already implements this — there is nothing here for you to
+/// write.
+// Left to itself, a value that cannot be written reports a missing `Render<ViaDisplay>`, naming a
+// marker the caller never wrote and a trait they have no reason to know. The template asked for
+// something printable, so that is what the error says.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be written out by a template",
+    label = "this value has no text to write",
+    note = "a template writes anything that implements `std::fmt::Display`, or an `Option` of \
+            such a type — where `None` writes nothing, as it does in handlebars.js"
+)]
+pub trait Render<K> {
+    /// Writes this value into `out`, unescaped.
+    fn render_to<W: core::fmt::Write + ?Sized>(&self, out: &mut W) -> core::fmt::Result;
+}
+
+/// [`Render`] marker: written as it displays.
+pub struct ViaDisplay;
+
+/// [`Render`] marker: written when `Some`, nothing when `None`.
+pub struct ViaOption;
+
+/// [`Render`] marker: as [`ViaOption`], for an `Option` passed by reference.
+pub struct ViaOptionRef;
+
+impl<T: core::fmt::Display + ?Sized> Render<ViaDisplay> for T {
+    fn render_to<W: core::fmt::Write + ?Sized>(&self, out: &mut W) -> core::fmt::Result {
+        write!(out, "{}", self)
+    }
+}
+
+/// `None` is absent, and absent writes nothing — as null and undefined do in handlebars.js.
+impl<T: core::fmt::Display> Render<ViaOption> for Option<T> {
+    fn render_to<W: core::fmt::Write + ?Sized>(&self, out: &mut W) -> core::fmt::Result {
+        match self {
+            Some(value) => write!(out, "{}", value),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Borrowing the `Option` rather than passing it in is the common case when the value lives in a
+/// struct the caller still owns, so it renders the same way.
+impl<T: core::fmt::Display> Render<ViaOptionRef> for &Option<T> {
+    fn render_to<W: core::fmt::Write + ?Sized>(&self, out: &mut W) -> core::fmt::Result {
+        match self {
+            Some(value) => write!(out, "{}", value),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Turns a value into something `write!` can take, escaped or not.
+///
+/// Generated code calls these as methods — `value.escaped()` rather than `escaped(value)` — because
+/// method lookup steps through references for us. A loop hands its body an `&Item` while a field is
+/// a plain value, and both have to reach the same [`Render`] impl.
+pub trait RenderExt<K>: Render<K> {
+    /// Wraps this value for `{{{ }}}`: written exactly as given.
+    fn shown(&self) -> Shown<'_, Self, K> {
+        Shown(self, core::marker::PhantomData)
+    }
+
+    /// Wraps this value for `{{ }}`: written HTML-escaped.
+    fn escaped(&self) -> Escaped<'_, Self, K> {
+        Escaped(self, core::marker::PhantomData)
+    }
+}
+
+impl<T: Render<K> + ?Sized, K> RenderExt<K> for T {}
+
+/// The wrapper produced by [`RenderExt::shown`].
+pub struct Shown<'a, T: ?Sized, K>(&'a T, core::marker::PhantomData<K>);
+
+impl<T: Render<K> + ?Sized, K> core::fmt::Display for Shown<'_, T, K> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        use core::fmt::Write;
-        write!(EscapeWriter(f), "{}", self.0)
+        self.0.render_to(f)
+    }
+}
+
+/// The HTML-escaping wrapper produced by [`RenderExt::escaped`].
+pub struct Escaped<'a, T: ?Sized, K>(&'a T, core::marker::PhantomData<K>);
+
+impl<T: Render<K> + ?Sized, K> core::fmt::Display for Escaped<'_, T, K> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.render_to(&mut EscapeWriter(f))
     }
 }
 
 /// Escapes as it forwards, so a large value never lands in a temporary buffer.
-struct EscapeWriter<'a, 'b>(&'a mut core::fmt::Formatter<'b>);
+struct EscapeWriter<'a, W: ?Sized>(&'a mut W);
 
-impl core::fmt::Write for EscapeWriter<'_, '_> {
+impl<W: core::fmt::Write + ?Sized> core::fmt::Write for EscapeWriter<'_, W> {
     fn write_str(&mut self, text: &str) -> core::fmt::Result {
         // The same set handlebars.js escapes, so output matches character for character.
         let mut written = 0;
@@ -248,6 +444,13 @@ impl Truthy for bool {
 
 /// A variable that was never set is absent, and absent is falsy.
 impl Truthy for Empty {
+    fn is_truthy(&self) -> bool {
+        false
+    }
+}
+
+/// A list that was never set is absent, and so is falsy — as an empty list is.
+impl<T> Truthy for Absent<T> {
     fn is_truthy(&self) -> bool {
         false
     }

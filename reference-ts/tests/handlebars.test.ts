@@ -83,6 +83,96 @@ describe('Handlebars Reference Tests', () => {
         expect(template({ value: [1] })).toBe('[yes]');
     });
 
+    // Mirrors `absent.rs` in the Rust suite. This is the definition the Rust `Render` impl for
+    // `Option` is written against: null and undefined write nothing at all, and `false` and `0`
+    // are values that write themselves.
+    it('null_and_undefined_write_nothing', () => {
+        const template = Handlebars.compile('[{{ value }}]');
+        expect(template({ value: null })).toBe('[]');
+        expect(template({ value: undefined })).toBe('[]');
+        expect(template({})).toBe('[]');
+        expect(template({ value: "" })).toBe('[]');
+        expect(template({ value: false })).toBe('[false]');
+        expect(template({ value: 0 })).toBe('[0]');
+        expect(template({ value: "Dub" })).toBe('[Dub]');
+    });
+
+    // The same, unescaped, and one level down in a record.
+    it('null_writes_nothing_raw_or_nested', () => {
+        const raw = Handlebars.compile('[{{{ value }}}]');
+        expect(raw({ value: null })).toBe('[]');
+        const nested = Handlebars.compile('[{{ person.nickname }}]');
+        expect(nested({ person: { nickname: null } })).toBe('[]');
+    });
+
+    // A nullable column across a loop — the case the Rust side accepts an `Option` for.
+    it('null_writes_nothing_inside_each', () => {
+        const rows = Handlebars.compile('{{#each rows}}<td>{{ when }}</td>{{/each}}');
+        expect(rows({ rows: [{ when: "now" }, { when: null }] })).toBe('<td>now</td><td></td>');
+        const items = Handlebars.compile('{{#each tags}}[{{this}}]{{/each}}');
+        expect(items({ tags: ["a", null, "c"] })).toBe('[a][][c]');
+    });
+
+    // Mirrors `length.rs` in the Rust suite. `length` is an ordinary property lookup in
+    // handlebars.js that happens to land on the one JS arrays carry — which is why a designer
+    // writes it without thinking, and why the Rust side has to support it.
+    it('a_list_reports_how_many_items_it_holds', () => {
+        const template = Handlebars.compile('[{{ rows.length }}]');
+        expect(template({ rows: [1, 2, 3] })).toBe('[3]');
+        expect(template({ rows: [] })).toBe('[0]');
+    });
+
+    // The distinction the Rust `Absent` type exists for: undefined counts as nothing, where an
+    // empty list counts 0.
+    it('an_unset_list_counts_as_nothing_rather_than_zero', () => {
+        const template = Handlebars.compile('[{{ rows.length }}]');
+        expect(template({})).toBe('[]');
+        expect(template({ rows: undefined })).toBe('[]');
+        expect(template({ rows: [] })).toBe('[0]');
+    });
+
+    it('a_count_can_be_tested', () => {
+        const template = Handlebars.compile('{{#if rows.length}}some{{else}}none{{/if}}');
+        expect(template({ rows: [1] })).toBe('some');
+        expect(template({ rows: [] })).toBe('none');
+        expect(template({})).toBe('none');
+    });
+
+    it('a_list_can_be_counted_and_iterated', () => {
+        const template = Handlebars.compile('{{ rows.length }}:{{#each rows}}{{ name }}{{/each}}');
+        expect(template({ rows: [{ name: "King" }, { name: "Tubby" }] })).toBe('2:KingTubby');
+    });
+
+    // Mirrors `root.rs` in the Rust suite. `@root` is absolute where `@index` and friends are loop
+    // state, which is why the Rust side resolves it before the outward walk rather than through it.
+    it('the_top_level_is_reachable_from_any_depth', () => {
+        const ctx = { title: "Dub", rows: [1, 2], person: { name: "King" } };
+        expect(Handlebars.compile('{{#each rows}}[{{@root.title}}]{{/each}}')(ctx)).toBe('[Dub][Dub]');
+        expect(Handlebars.compile('{{#with person}}[{{@root.title}}]{{/with}}')(ctx)).toBe('[Dub]');
+        expect(Handlebars.compile('[{{@root.title}}]')(ctx)).toBe('[Dub]');
+        expect(Handlebars.compile('{{#each rows}}[{{@root.person.name}}]{{/each}}')(ctx)).toBe('[King][King]');
+    });
+
+    // The reason `../` is stripped rather than walked on the Rust side.
+    it('a_parent_prefix_makes_no_difference_to_root', () => {
+        const ctx = { title: "Dub", rows: [1, 2] };
+        expect(Handlebars.compile('{{#each rows}}[{{@../root.title}}]{{/each}}')(ctx)).toBe('[Dub][Dub]');
+    });
+
+    it('the_root_can_be_tested_counted_and_used_as_a_subject', () => {
+        const ctx = { title: "Dub", rows: [{ name: "King" }], person: { name: "Tubby" } };
+        expect(Handlebars.compile('{{#each rows}}[{{#if @root.title}}y{{/if}}]{{/each}}')(ctx)).toBe('[y]');
+        expect(Handlebars.compile('{{#each rows}}[{{@root.rows.length}}]{{/each}}')(ctx)).toBe('[1]');
+        expect(Handlebars.compile('{{#each @root.rows}}[{{ name }}]{{/each}}')(ctx)).toBe('[King]');
+        expect(Handlebars.compile('{{#with @root.person}}[{{ name }}]{{/with}}')(ctx)).toBe('[Tubby]');
+    });
+
+    // Why bare `{{@root}}` is a named error on the Rust side rather than a guess: there is nothing
+    // useful to write for the whole context.
+    it('bare_root_writes_the_object_itself', () => {
+        expect(Handlebars.compile('[{{@root}}]')({ title: "Dub" })).toBe('[[object Object]]');
+    });
+
     it('a_list_can_be_tested_and_iterated', () => {
         const template = Handlebars.compile('{{#if rows}}<ul>{{#each rows}}<li>{{name}}</li>{{/each}}</ul>{{/if}}');
         expect(template({ rows: [{ name: "King" }] })).toBe('<ul><li>King</li></ul>');

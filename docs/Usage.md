@@ -19,6 +19,56 @@ templates::page(rows).render_to(&mut body)?;
 `render()` remains the convenience form and returns a `String`.
 
 
+### Absent values
+
+A variable can be an `Option`, and `None` renders as nothing — as null and undefined do in
+handlebars.js. Nothing in the template says so and nothing at the call site unwraps first, which
+matters because most database columns are nullable:
+
+```rust
+templates::row(row.id, row.guessed_datetime).render()   // Option<String>, None renders as ""
+```
+
+This works by value or by reference, in a record, in `{{#each}}`, and through a builder setter.
+`{{#if}}` asks only whether the value is there, so `{{#if x}}{{ x }}{{/if}}` works on the very
+`Option` it prints. `false` and `0` are values rather than absences, and render as `false` and `0`.
+
+
+## Reaching the top level
+
+`{{@root.title}}` reads the template's own top-level context from any depth — inside `{{#each}}`,
+inside `{{#with}}`, or nested in both:
+
+```handlebars
+{{#each rows}}<li>{{ name }} — {{@root.title}}</li>{{/each}}
+```
+
+`@root` is absolute, unlike `{{@index}}`, `{{@first}}` and `{{@last}}`, which are loop state:
+`{{@../root.title}}` means exactly the same thing, as it does in handlebars.js. It works as a block
+subject too (`{{#each @root.rows}}`, `{{#with @root.person}}`), and a partial sees the including
+template's root, since a partial renders against the context it was included from.
+
+`{{@root}}` on its own is a compile error — handlebars.js writes `[object Object]` for the whole
+context, and there is nothing useful to write instead.
+
+
+## Counting a list
+
+`{{ rows.length }}` counts the list, and the same variable can still be iterated:
+
+```rust
+templates::page(rows).render()   // page.hbs writes {{ rows.length }} and {{#each rows}}
+```
+
+Anything slice-backed counts — `Vec`, an array, a slice, or a reference to one. A `String` does
+not: JS counts UTF-16 code units where Rust counts bytes or `char`s, so it is a compile error
+naming the value rather than a quietly different number. A record field genuinely named `length`
+is unreachable, because `.length` always means the count.
+
+A list left unset on a builder counts as nothing rather than `0`, as an undefined value does in
+handlebars.js. A list you pass with no items in it counts `0`.
+
+
 ## Names Rust would object to
 
 Templates and variables are named by whoever writes the `.hbs` files, so names Rust reserves are

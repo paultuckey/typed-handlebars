@@ -9,6 +9,48 @@ version being released. See [docs/Release.md](docs/Release.md).
 
 ## [Unreleased]
 
+### Added
+
+- **`Option` renders, and `None` renders as nothing** — as null and undefined do in handlebars.js.
+  `{{ x }}` on a nullable value used to be a compile error, which left `{{#if x}}` working on an
+  `Option` that could not then be printed, and left callers writing
+  `x.as_deref().unwrap_or("")` at the call site. It now works by value or by reference, in a
+  record, as a `{{#each}}` item, and through a builder setter. `false` and `0` remain values and
+  still render as `false` and `0`.
+
+- **`{{@root.…}}` reaches the template's top-level context** from any depth — inside `{{#each}}`,
+  inside `{{#with}}`, nested in both, and as a block subject (`{{#each @root.rows}}`). Unlike
+  `{{@index}}`, `{{@first}}` and `{{@last}}`, which are loop state, `@root` is absolute:
+  `{{@../root.title}}` reads the same value, as it does in handlebars.js, so the prefix is stripped
+  rather than walked. A partial sees the including template's root. Bare `{{@root}}` is a compile
+  error naming the construct — handlebars.js writes `[object Object]` for the whole context, and
+  there is nothing useful to write instead. Iterating any other `@…` (`{{#each @index}}`) is now a
+  named error too, rather than quietly becoming a record called `index`.
+- **`{{ rows.length }}` counts a list**, as it does in handlebars.js, and a variable can be counted
+  and iterated at once. It used to become a record named `Rows` with a `length` field — a type that
+  compiled, asked the caller for something meaningless and rendered the wrong thing — or, when the
+  template also had `{{#each rows}}`, an error claiming `rows` could not be both a list and a
+  record, which in handlebars.js it can. `{{#if rows.length}}` tests the count. Only lists have a
+  `.length`: a `String` is a compile error naming the value, because JS counts UTF-16 code units
+  where Rust counts bytes or `char`s. A record field genuinely named `length` is now unreachable —
+  handlebars.js resolves that by runtime type, and a compile-time generator has to pick one.
+- **A list left unset counts as nothing rather than `0`.** Absent and empty are the same everywhere
+  else, but handlebars.js writes nothing for `undefined.length` and `0` for `[].length`, so the
+  unset placeholder for a list is now `Absent<Item>` rather than `[Item; 0]`.
+
+### Changed
+
+- **`[…]` path segments are a compile error naming the construct**, rather than silently becoming a
+  record field. This covers indexing (`{{ rows.[0] }}`) and quoted names (`{{ [odd name] }}`);
+  neither is implemented, and both used to generate a nonsense type.
+- **Written values are bound by `Render` rather than `Display`.** A leaf the template writes out
+  carries a second, inference-filled marker parameter naming which `Render` impl its value takes,
+  held in the type's `PhantomData`. This is what allows an `Option` to render at all: Rust's
+  coherence rules forbid a crate from writing both `impl<T: Display> Render for T` and
+  `impl<T> Render for Option<T>`. Call sites are unaffected — inference fills the marker in — but
+  generated type signatures carry the extra parameter, and `escape` is replaced by
+  `RenderExt::escaped` and `RenderExt::shown`.
+
 ## [0.1.0] — 2026-08-15
 
 First release. `typed-handlebars` turns `.hbs` files into Rust at compile time: the types a

@@ -21,6 +21,10 @@ Add entries under `## [Unreleased]` in `CHANGELOG.md`. The release turns that he
 version being released, dates it, and re-points the links at the bottom; nothing there needs
 editing by hand.
 
+This section is the release notes. [`release.yml`](../.github/workflows/release.yml) copies it onto
+the GitHub release verbatim and fails the build if the version has no section, so an empty
+`[Unreleased]` is worth filling in before step 4 rather than after.
+
 ## 2. Run the checks
 
 ```shell
@@ -64,8 +68,13 @@ cargo release minor --execute
 
 It asks for confirmation before anything irreversible.
 
-## 5. Write the GitHub release
+That is the last manual step. Publishing happens before the tag is pushed, so once the tag lands on
+GitHub the crates are already up, and pushing it triggers
+[`release.yml`](../.github/workflows/release.yml), which creates the GitHub release with the
+changelog section for that version as its body. Nothing is attached to it — both crates are
+libraries and crates.io is where they are installed from — so the release exists to notify watchers
+and to give Dependabot notes to quote in the bump PRs it opens against consumers.
 
-Create a release against the new `v…` tag on
-[GitHub](https://github.com/paultuckey/typed-handlebars/releases/new), with the changelog entry as
-its body.
+If that workflow fails, the release can be written by hand against the tag on
+[GitHub](https://github.com/paultuckey/typed-handlebars/releases/new); it is a mirror of the
+changelog, and nothing about the published crates depends on it.

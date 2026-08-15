@@ -1,0 +1,5 @@
+error: line 1, column 18: `@index` as the subject of `{{#each}}` is not supported yet
+ --> tests/ui/private_block_subject.rs:6:9
+  |
+6 |         r#"{{#each rows}}{{#each @index}}<li>{{ name }}</li>{{/each}}{{/each}}"#
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

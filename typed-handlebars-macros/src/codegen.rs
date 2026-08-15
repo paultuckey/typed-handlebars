@@ -13,10 +13,15 @@
 //!
 //! # Generic parameters
 //!
-//! Fields stay generic so the caller can pass whatever they already have: `&str`, `String`, `u32`
-//! or anything else that implements `Display`. Every leaf in the tree contributes one parameter,
-//! and parameters from nested types are threaded up into their parent, so the root type carries
-//! the whole tree's parameters and the root `impl` carries the whole tree's bounds.
+//! Fields stay generic so the caller can pass whatever they already have: `&str`, `String`, `u32`,
+//! an `Option` of any of those, or anything else that implements `Display`. Every leaf in the tree
+//! contributes one parameter, and parameters from nested types are threaded up into their parent,
+//! so the root type carries the whole tree's parameters and the root `impl` carries the whole
+//! tree's bounds.
+//!
+//! A leaf the template writes out contributes a second, invisible parameter: the marker of the
+//! `Render` impl its value goes through. Inference fills it in and `PhantomData` holds it, and it
+//! is what lets `{{ x }}` accept an `Option` — see `typed_handlebars::Render`.
 //!
 //! Sequences are bound by `I: AsRef<[Item]>`, which is what lets `render(&self)` walk a list
 //! without consuming it — so the caller can pass a list they still own, and a template can iterate
@@ -41,15 +46,19 @@ struct Shape {
     /// What each entry of `params` becomes when its field is left unset.
     ///
     /// Needed because `Empty` is a list of *any* item type, so an unset list has to name a concrete
-    /// empty — `[item; 0]` — or the item type cannot be inferred.
+    /// empty — `Absent<item>` — or the item type cannot be inferred.
     param_empties: Vec<TokenStream>,
     /// The subset of `params` that appears in this type's own fields.
     ///
     /// A list's item type is named only in that list's `AsRef` bound, so its parameters need a
     /// `PhantomData` to count as used — this is how we tell which ones.
     field_params: Vec<Ident>,
-    /// Parameters that end up written out, so they need `Display`.
-    display_params: Vec<Ident>,
+    /// Parameters that end up written out, each paired with the marker parameter that says how.
+    ///
+    /// A written value is bound by `Render<K>` rather than `Display`, so that an `Option` can write
+    /// nothing rather than failing to compile. `K` is resolved by inference at the call site and
+    /// carried in the `PhantomData`, since it names no field.
+    render_params: Vec<(Ident, Ident)>,
     /// Parameters that are tested by `{{#if}}` or `{{#unless}}`, so they need `Truthy`.
     truthy_params: Vec<Ident>,
     /// `where` predicates this subtree needs, hoisted to the root `impl`.
@@ -72,7 +81,7 @@ impl Shape {
             params: Vec::new(),
             param_empties: Vec::new(),
             field_params: Vec::new(),
-            display_params: Vec::new(),
+            render_params: Vec::new(),
             truthy_params: Vec::new(),
             predicates: Vec::new(),
             declarations: Vec::new(),
@@ -361,11 +370,6 @@ pub fn generate(context: &Context, runtime: &TokenStream) -> Types {
     let initialisers = shape.all_initialisers();
 
     // These belong with the rest, so the builder's `build` carries them too.
-    for param in &shape.display_params.clone() {
-        shape
-            .predicates
-            .push(quote! { #param: ::std::fmt::Display });
-    }
     for param in &shape.truthy_params.clone() {
         shape.predicates.push(quote! { #param: #runtime::Truthy });
     }
@@ -411,7 +415,30 @@ fn build(
         shape.types.push(ty);
     }
 
+    // Every type carries its own `Render` bounds rather than leaving them to the root, so that
+    // `RowsItem::new("King")` resolves its markers there and then. Left to the root, they would be
+    // inference variables in the caller's hands, and naming a `RowsItem` would mean naming them.
+    let runtime = state.runtime.clone();
+    for (param, marker) in std::mem::take(&mut shape.render_params) {
+        shape
+            .predicates
+            .push(quote! { #param: #runtime::Render<#marker> });
+    }
+
     shape
+}
+
+/// Mints the marker parameter that goes with a written value.
+///
+/// It names no field — only the `Render` bound — so it is deliberately left out of `field_params`
+/// and ends up in the type's `PhantomData`. Unset, the value is `Empty`, which writes as it
+/// displays.
+fn render_param(param: &Ident, state: &mut State, shape: &mut Shape) {
+    let marker = state.next("K");
+    shape.params.push(marker.clone());
+    let runtime = &state.runtime;
+    shape.param_empties.push(quote! { #runtime::ViaDisplay });
+    shape.render_params.push((param.clone(), marker));
 }
 
 /// Works out the type of one field, declaring any nested types it needs along the way.
@@ -430,12 +457,17 @@ fn field_type(
             shape.param_empties.push(empty_type(&runtime));
             shape.field_params.push(param.clone());
             if field.used_as_value {
-                shape.display_params.push(param.clone());
+                render_param(&param, state, shape);
             }
             // A tested variable takes Handlebars truthiness rather than being forced to `bool`,
             // which is what lets `{{#if title}}{{title}}{{/if}}` work on the very string it prints.
             if field.used_as_condition {
                 shape.truthy_params.push(param.clone());
+            }
+            // `{{ rows.length }}` with no `{{#each rows}}` anywhere: the template says `rows` is a
+            // list, but never says what is in it, so `Length` is the whole of what it needs.
+            if field.used_as_length {
+                shape.predicates.push(quote! { #param: #runtime::Length });
             }
             shape
                 .empties
@@ -463,13 +495,16 @@ fn field_type(
                 shape.params.push(param.clone());
                 shape.param_empties.push(empty_type(&runtime));
                 // Bounded by what the template does with the item, exactly as a named field is
-                // above: printed needs `Display`, tested needs `Truthy`, and `{{#if this}}` is a
+                // above: printed needs `Render`, tested needs `Truthy`, and `{{#if this}}` is a
                 // test of the item itself rather than of a field on it.
                 if item.used_as_value {
-                    shape.display_params.push(param.clone());
+                    render_param(&param, state, shape);
                 }
                 if item.used_as_condition {
                     shape.truthy_params.push(param.clone());
+                }
+                if item.used_as_length {
+                    shape.predicates.push(quote! { #param: #runtime::Length });
                 }
                 (quote! { #param }, empty_type(&runtime))
             } else {
@@ -486,7 +521,9 @@ fn field_type(
 
             let param = state.next("I");
             shape.params.push(param.clone());
-            shape.param_empties.push(quote! { [#empty_item; 0] });
+            shape
+                .param_empties
+                .push(quote! { #runtime::Absent<#empty_item> });
             shape.field_params.push(param.clone());
             shape
                 .predicates
@@ -494,11 +531,17 @@ fn field_type(
             if field.used_as_condition {
                 shape.truthy_params.push(param.clone());
             }
-            // An unset list has no items. It has to name the item type: `Empty` is a list of
-            // anything, which would leave the item type ambiguous.
-            shape
-                .empties
-                .push((quote! { [#empty_item; 0] }, quote! { [] }));
+            if field.used_as_length {
+                shape.predicates.push(quote! { #param: #runtime::Length });
+            }
+            // An unset list is absent rather than empty, which `{{ rows.length }}` is the one
+            // place to notice: absent counts as nothing where an empty list counts `0`. It has to
+            // name the item type — `Empty` is a list of anything, which would leave the item type
+            // ambiguous — which is what `Absent` is for.
+            shape.empties.push((
+                quote! { #runtime::Absent<#empty_item> },
+                quote! { #runtime::Absent::new() },
+            ));
             quote! { #param }
         }
     }
@@ -582,7 +625,8 @@ fn absorb(parent: &mut Shape, child: Shape, in_field: bool) -> Vec<Ident> {
     if in_field {
         parent.field_params.extend(child.params.iter().cloned());
     }
-    parent.display_params.extend(child.display_params);
+    // `build` has already turned the child's `render_params` into predicates on the child itself,
+    // and predicates come up with it, so there is nothing left to thread here.
     parent.truthy_params.extend(child.truthy_params);
     parent.predicates.extend(child.predicates);
     child.params

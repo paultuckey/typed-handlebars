@@ -28,3 +28,4 @@ pub mod error;
 pub mod expression;
 pub mod expression_tokenizer;
 pub mod lib;
+pub mod path;
