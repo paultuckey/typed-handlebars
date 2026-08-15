@@ -72,6 +72,12 @@ pub struct Context {
     pub fields: Vec<Field>,
     /// The scope itself is written out — `{{ this }}` inside an `{{#each}}` over scalars.
     pub used_as_value: bool,
+    /// The scope itself is tested — `{{#if this}}` inside an `{{#each}}` over scalars.
+    ///
+    /// The counterpart of [`Field::used_as_condition`], and needed for the same reason: without it
+    /// the item's generated parameter carries no `Truthy` bound, and testing the item fails as a
+    /// Rust error against a template that is perfectly good Handlebars.
+    pub used_as_condition: bool,
 }
 
 impl Context {
@@ -165,6 +171,7 @@ impl Context {
     /// one item type.
     fn absorb(&mut self, other: Context) -> Result<()> {
         self.used_as_value |= other.used_as_value;
+        self.used_as_condition |= other.used_as_condition;
         for field in other.fields {
             let index = self.index_of(&field.name);
             let mine = &mut self.fields[index];
@@ -440,8 +447,10 @@ fn unsupported(what: &str, expr: &Expression<'_>) -> ParseError {
 fn record(frames: &mut [Frame], var: &str, mark: Mark) -> Result<()> {
     match resolve(frames, var)? {
         Target::Scope(frame) => {
-            if let Mark::Value = mark {
-                frames[frame].context.used_as_value = true;
+            let context = &mut frames[frame].context;
+            match mark {
+                Mark::Value => context.used_as_value = true,
+                Mark::Condition => context.used_as_condition = true,
             }
             Ok(())
         }

@@ -111,3 +111,86 @@ fn variable_names_may_start_with_a_digit() {
         "[silver][answer]"
     );
 }
+
+/// Testing an `{{#each}}` item *itself* bounds it by `Truthy`, as testing a named field does.
+/// It used to bound nothing, so `{{#if this}}` inside a loop failed with
+/// `error[E0277]: the trait bound 'T0: Truthy' is not satisfied` — a Rust error against a template
+/// that is perfectly good Handlebars.
+#[test]
+fn testing_the_item_itself_bounds_it() {
+    mod printed_too {
+        typed_handlebars::str!(
+            "test",
+            //language=handlebars
+            "{{#each xs}}{{#if this}}[{{this}}]{{/if}}{{/each}}"
+        );
+    }
+    assert_eq!(printed_too::test(vec![1, 0, 2]).render(), "[1][2]");
+
+    mod negated {
+        typed_handlebars::str!(
+            "test",
+            //language=handlebars
+            "{{#each xs}}{{#unless this}}n{{/unless}}{{/each}}"
+        );
+    }
+    assert_eq!(negated::test(vec![1, 0]).render(), "n");
+
+    // An alias reaches the same scope, so it needs the same bound — a fix keyed on the literal
+    // `this` would miss this half.
+    mod through_an_alias {
+        typed_handlebars::str!(
+            "test",
+            //language=handlebars
+            "{{#each xs as |x|}}{{#if x}}[{{x}}]{{/if}}{{/each}}"
+        );
+    }
+    assert_eq!(through_an_alias::test(vec!["a", ""]).render(), "[a]");
+
+    // Nested loops each bound their own item.
+    mod nested {
+        typed_handlebars::str!(
+            "test",
+            //language=handlebars
+            "{{#each rows}}{{#each cells}}{{#if this}}[{{this}}]{{/if}}{{/each}};{{/each}}"
+        );
+    }
+    assert_eq!(
+        nested::test(vec![
+            nested::test::RowsItem::new(vec![1, 0]),
+            nested::test::RowsItem::new(vec![2]),
+        ])
+        .render(),
+        "[1];[2];"
+    );
+}
+
+/// An item that is only tested needs no `Display`, in the same way a named field that is only
+/// tested does not. The bound follows what the template asks for rather than being applied to
+/// every item.
+///
+/// `OnlyTruthy` is the proof: it has no `Display` of its own, so this stops compiling the moment
+/// the item is asked to be printable. Implementing `Truthy` by hand is not something a consumer
+/// should ever need to do — it is done here precisely because it makes the bound observable.
+#[test]
+fn an_item_that_is_only_tested_needs_no_display() {
+    struct OnlyTruthy(bool);
+
+    impl typed_handlebars::Truthy for OnlyTruthy {
+        fn is_truthy(&self) -> bool {
+            self.0
+        }
+    }
+
+    mod template {
+        typed_handlebars::str!(
+            "test",
+            //language=handlebars
+            "{{#each xs}}{{#if this}}y{{/if}}{{/each}}"
+        );
+    }
+    assert_eq!(
+        template::test(vec![OnlyTruthy(true), OnlyTruthy(false)]).render(),
+        "y"
+    );
+}

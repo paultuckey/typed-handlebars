@@ -462,7 +462,15 @@ fn field_type(
                 let param = state.next("T");
                 shape.params.push(param.clone());
                 shape.param_empties.push(empty_type(&runtime));
-                shape.display_params.push(param.clone());
+                // Bounded by what the template does with the item, exactly as a named field is
+                // above: printed needs `Display`, tested needs `Truthy`, and `{{#if this}}` is a
+                // test of the item itself rather than of a field on it.
+                if item.used_as_value {
+                    shape.display_params.push(param.clone());
+                }
+                if item.used_as_condition {
+                    shape.truthy_params.push(param.clone());
+                }
                 (quote! { #param }, empty_type(&runtime))
             } else {
                 let type_name = format_ident!("{}{}Item", prefix, camel(&field.name));

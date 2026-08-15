@@ -382,6 +382,18 @@ describe('Handlebars Reference Tests', () => {
         expect(Handlebars.compile('start\n{{> one_line}}\nend')({})).toBe('start\n<a>end');
     });
 
+    // Testing the loop item itself, rather than a field on it. The Rust side needs the item's
+    // generated parameter bounded by `Truthy` for this, which is what makes it worth pinning.
+    it('testing_the_item_itself_bounds_it', () => {
+        expect(Handlebars.compile('{{#each xs}}{{#if this}}[{{this}}]{{/if}}{{/each}}')({ xs: [1, 0, 2] }))
+            .toBe('[1][2]');
+        expect(Handlebars.compile('{{#each xs}}{{#unless this}}n{{/unless}}{{/each}}')({ xs: [1, 0] }))
+            .toBe('n');
+        // An alias reaches the same scope as `this`.
+        expect(Handlebars.compile('{{#each xs as |x|}}{{#if x}}[{{x}}]{{/if}}{{/each}}')({ xs: ['a', ''] }))
+            .toBe('[a]');
+    });
+
     it('whitespace_trimming', () => {
         const template = Handlebars.compile('  {{~#if some ~}}   Hello{{~/if~}}');
         expect(template({ some: true })).toBe('Hello');
