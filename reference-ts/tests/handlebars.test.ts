@@ -344,6 +344,44 @@ describe('Handlebars Reference Tests', () => {
         expect(Handlebars.compile('a\n\n{{! c }}\n\nb')({})).toBe('a\n\n\nb');
     });
 
+    // A partial alone on its line is standalone too, and its indentation is applied to every line
+    // it emits rather than dropped. Mirrors the `partials` module in
+    // `typed-handlebars/tests/standalone.rs`, whose fixtures hold these same strings.
+    it('a_standalone_partial_indents_every_line', () => {
+        Handlebars.registerPartial('three_lines', '<a>\n<b>\n<c>');
+        expect(Handlebars.compile('start\n    {{> three_lines}}\nend')({}))
+            .toBe('start\n    <a>\n    <b>\n    <c>end');
+
+        // Anything else on the line and it is an ordinary partial: no indent, newline kept.
+        expect(Handlebars.compile('start\n  x{{> three_lines}}\nend')({}))
+            .toBe('start\n  x<a>\n<b>\n<c>\nend');
+
+        // The end of the template ends the line here too.
+        expect(Handlebars.compile('start\n    {{> three_lines}}')({}))
+            .toBe('start\n    <a>\n    <b>\n    <c>');
+    });
+
+    it('a_standalone_partial_leaves_no_dangling_indent', () => {
+        Handlebars.registerPartial('ends_with_newline', '<a>\n');
+        expect(Handlebars.compile('start\n    {{> ends_with_newline}}\nend')({}))
+            .toBe('start\n    <a>\nend');
+
+        Handlebars.registerPartial('nothing', '');
+        expect(Handlebars.compile('start\n    {{> nothing}}\nend')({})).toBe('start\nend');
+    });
+
+    // Indents accumulate rather than replace: a partial included from inside another standalone
+    // partial is indented by both. This is the rule the Rust assembler composes.
+    it('nested_standalone_partials_add_their_indents', () => {
+        Handlebars.registerPartial('one_line', '<a>');
+        Handlebars.registerPartial('includes_another', 'X\n  {{> one_line}}\nY');
+        expect(Handlebars.compile('start\n    {{> includes_another}}\nend')({}))
+            .toBe('start\n    X\n      <a>Yend');
+
+        expect(Handlebars.compile('start\n    {{> one_line}}\nend')({})).toBe('start\n    <a>end');
+        expect(Handlebars.compile('start\n{{> one_line}}\nend')({})).toBe('start\n<a>end');
+    });
+
     it('whitespace_trimming', () => {
         const template = Handlebars.compile('  {{~#if some ~}}   Hello{{~/if~}}');
         expect(template({ some: true })).toBe('Hello');

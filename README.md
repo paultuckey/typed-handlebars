@@ -104,7 +104,7 @@ construct, never a silent difference and never a Rust type error you would have 
 | `{{> row}}`                                 | partials, rendered against the context they were included from          |
 | `{{! … }}` / `{{!-- … --}}`                 | comments, including the trimming closes `{{! … ~}}` and `{{!-- … --~}}` |
 | `{{~ … ~}}`                                 | whitespace trimming                                                     |
-| a tag alone on a line                       | its indentation and newline go, so it leaves no blank line              |
+| a tag alone on a line                       | indentation and newline go; a partial's indent reaches its every line    |
 | `\{{ … }}` and `{{{{raw}}}} … {{{{/raw}}}}` | literal output                                                          |
 
 ### Not yet
@@ -113,13 +113,6 @@ construct, never a silent difference and never a Rust type error you would have 
 sub-expressions `( … )` · `{{#with}}` with `{{else}}` · partial arguments (`{{> row this}}`) ·
 inline partials (`{{#*inline}}`) · lists that are not slice-backed (`HashMap`,
 `VecDeque`).
-
-**A partial alone on a line is not treated as standalone.** Block tags, `{{else}}` and comments
-are: put one on its own line and it leaves no trace, as in handlebars.js. A partial is the
-exception — its line keeps its newline, and handlebars.js's re-indenting of the partial's own
-output is not reproduced. So `{{> row}}` on its own line leaves a blank line behind where
-handlebars.js would not. Put it inline (`<ul>{{#each rows}}{{> row}}{{/each}}</ul>`), or use
-`{{~ … ~}}`, if that matters.
 
 ### Out of scope
 

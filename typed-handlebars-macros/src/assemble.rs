@@ -35,6 +35,14 @@ pub struct Assembly {
     pub includes: Vec<String>,
     files: Vec<Source>,
     segments: Vec<Segment>,
+    /// What to put at the start of every line, from the standalone partials currently being
+    /// spliced. Nested ones accumulate, which is what handlebars.js does.
+    indent: String,
+    /// Whether the next text written starts a line and so owes the indent.
+    ///
+    /// Deferring it is what stops a partial whose content ends in a newline from leaving a dangling
+    /// indent behind: the debt is only paid when there is something to put after it.
+    owes_indent: bool,
 }
 
 /// One file that contributed text.
@@ -76,6 +84,8 @@ impl Assembly {
             includes: Vec::new(),
             files: Vec::new(),
             segments: Vec::new(),
+            indent: String::new(),
+            owes_indent: true,
         };
         if let Some(path) = path {
             assembly.includes.push(path.to_string());
@@ -104,6 +114,9 @@ impl Assembly {
     ) -> Result<(), String> {
         let mut cursor = 0usize;
         let mut expression = Expression::from(content).map_err(|e| e.to_string())?;
+        // Every other kind of tag has its standalone line handled during parsing, but a partial is
+        // gone by then — this is the splice that removes it — so the same question is asked here.
+        let mut at_line_start = true;
 
         while let Some(expr) = expression {
             if let Some(name) = partial_name(expr.content) {
@@ -111,12 +124,41 @@ impl Assembly {
 
                 // `prefix` and `postfix` already account for `~` trim markers, so using their
                 // bounds keeps trimming working across a splice.
-                let up_to = offset_of(expr.prefix, content) + expr.prefix.len();
-                let resume = offset_of(expr.postfix, content);
+                let mut up_to = offset_of(expr.prefix, content) + expr.prefix.len();
+                let mut resume = offset_of(expr.postfix, content);
+
+                // A partial alone on its line takes the line with it, and its indentation becomes
+                // the indent of everything it splices in — every line of it, not just the first.
+                let alone = match (
+                    crate::parser::expression::line_start(expr.prefix, at_line_start),
+                    crate::parser::expression::line_end(expr.postfix),
+                ) {
+                    (Some(before), Some(after)) => {
+                        let indent = &expr.prefix[before.len()..];
+                        up_to -= indent.len();
+                        resume = offset_of(after, content);
+                        Some(indent.to_string())
+                    }
+                    _ => None,
+                };
 
                 self.copy(file, content, cursor, up_to);
-                self.splice(&name, directory, stack)?;
+
+                let outer = self.indent.clone();
+                if let Some(indent) = &alone {
+                    // Nested standalone partials add to the indent rather than replacing it, so a
+                    // partial included two levels down is indented by both.
+                    self.indent.push_str(indent);
+                    self.owes_indent = true;
+                }
+                let spliced = self.splice(&name, directory, stack);
+                self.indent = outer;
+                spliced?;
+
+                at_line_start = alone.is_some();
                 cursor = resume;
+            } else {
+                at_line_start = expr.standalone;
             }
             expression = expr.next().map_err(|e| e.to_string())?;
         }
@@ -125,17 +167,36 @@ impl Assembly {
         Ok(())
     }
 
-    /// Copies `content[from..to]` into the assembled text, remembering where it came from.
+    /// Copies `content[from..to]` into the assembled text, remembering where it came from and
+    /// applying any indent owed by a standalone partial.
+    ///
+    /// The copy is made a line at a time so that an indent inserted between lines can be given its
+    /// own [`Segment`]. A segment maps assembled offsets to file offsets linearly from where it
+    /// starts, so text that belongs to no file has to break the run rather than shift it — without
+    /// that, every error position after an indent inside a re-indented partial would drift.
     fn copy(&mut self, file: usize, content: &str, from: usize, to: usize) {
-        if from >= to {
-            return;
+        let mut at = from;
+        while at < to {
+            // Paid only now that there is text to put after it.
+            if self.owes_indent && !self.indent.is_empty() {
+                let indent = std::mem::take(&mut self.indent);
+                self.text.push_str(&indent);
+                self.indent = indent;
+            }
+            self.owes_indent = false;
+
+            let line = content[at..to]
+                .find('\n')
+                .map_or(to, |newline| at + newline + 1);
+            self.segments.push(Segment {
+                start: self.text.len(),
+                file,
+                offset: at,
+            });
+            self.text.push_str(&content[at..line]);
+            self.owes_indent = content[..line].ends_with('\n');
+            at = line;
         }
-        self.segments.push(Segment {
-            start: self.text.len(),
-            file,
-            offset: from,
-        });
-        self.text.push_str(&content[from..to]);
     }
 
     /// Reads a partial and appends it in place of the `{{> … }}` that named it.

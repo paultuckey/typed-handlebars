@@ -170,3 +170,56 @@ fn explicit_trimming_still_works() {
     }
     assert_eq!(template::test(true).render(), "Hello");
 }
+
+/// A partial alone on its line is standalone too, and its indentation is not dropped but
+/// **applied to every line it emits**. Partials are spliced before parsing, so this half of the
+/// rule lives in the assembler rather than in the expression parser.
+///
+/// The fixtures are in `tests/standalone-templates/`; each expectation here was read off
+/// handlebars.js first.
+mod partials {
+    typed_handlebars::directory!("tests/standalone-templates/");
+
+    /// Every line of the partial gets the indent, not just the first, and the tag's own line goes.
+    #[test]
+    fn the_indent_reaches_every_line() {
+        assert_eq!(indented().render(), "start\n    <a>\n    <b>\n    <c>end");
+    }
+
+    /// A partial whose text ends in a newline leaves no dangling indent after it — the indent is
+    /// owed only when there is something to put after it.
+    #[test]
+    fn a_trailing_newline_gets_no_indent_after_it() {
+        assert_eq!(trailing_newline().render(), "start\n    <a>\nend");
+    }
+
+    #[test]
+    fn one_line_partials_work_indented_or_not() {
+        assert_eq!(indented_one_line().render(), "start\n    <a>end");
+        assert_eq!(at_margin().render(), "start\n<a>end");
+    }
+
+    /// Anything else on the line and the partial is ordinary: no indent, and the newline stays.
+    #[test]
+    fn anything_else_on_the_line_cancels_it() {
+        assert_eq!(inline().render(), "start\n  x<a>\n<b>\n<c>\nend");
+    }
+
+    /// Indents **accumulate**: a partial included from inside another standalone partial is
+    /// indented by both. Checked against handlebars.js, which composes them the same way.
+    #[test]
+    fn nested_standalone_partials_add_their_indents() {
+        assert_eq!(nested().render(), "start\n    X\n      <a>Yend");
+    }
+
+    #[test]
+    fn the_end_of_the_template_ends_the_line() {
+        assert_eq!(at_eof().render(), "start\n    <a>\n    <b>\n    <c>");
+    }
+
+    /// An empty partial leaves nothing at all — not even the indent it would have been given.
+    #[test]
+    fn an_empty_partial_leaves_nothing() {
+        assert_eq!(of_nothing().render(), "start\nend");
+    }
+}

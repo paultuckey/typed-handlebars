@@ -42,7 +42,9 @@ there is no parsing, registry or lookup at run time.
   contributes nothing of its own: its indentation and its trailing newline both go, as in
   handlebars.js, so a template laid out over several lines renders as written instead of gaining a
   blank line after every tag. An interpolation is not standalone — `{{ name }}` alone on a line
-  keeps its newline, because it is there to produce output.
+  keeps its newline, because it is there to produce output. A partial alone on a line is standalone
+  too, and its indentation is applied to every line it emits rather than dropped, so an included
+  block of markup lines up where it was written.
 - **Comments in all their forms**, including the trimming closes `{{! … ~}}` and `{{!-- … --~}}`,
   and empty comments (`{{!}}`, `{{!----}}`). A long comment ends at its first close, so a later
   `--~}}` is text.
@@ -68,9 +70,6 @@ there is no parsing, registry or lookup at run time.
   where handlebars.js skips the block. `{{#if}}` and `{{#unless}}` are unaffected.
 - `{{{{raw}}}}…{{{{/raw}}}}` always passes its content through; handlebars.js treats the name as a
   helper and renders nothing when none is registered.
-- A **partial** alone on a line is not standalone, where block tags, `{{else}}` and comments are.
-  Its line keeps its trailing newline, and handlebars.js's re-indenting of the partial's own output
-  is not reproduced — so `{{> row}}` on its own line leaves a blank line behind.
 - A **carriage return** in template text does not survive code generation, so a `.hbs` file saved
   with CRLF line endings renders with LF.
 

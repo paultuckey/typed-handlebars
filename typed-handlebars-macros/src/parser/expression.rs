@@ -91,7 +91,7 @@ const BLANK: [char; 2] = [' ', '\t'];
 /// `at_line_start` covers the case the text cannot: a prefix with no newline in it is at the start
 /// of a line only when nothing has been emitted on that line yet — at the very beginning of the
 /// template, or straight after another standalone tag consumed its newline.
-fn line_start(prefix: &str, at_line_start: bool) -> Option<&str> {
+pub(crate) fn line_start(prefix: &str, at_line_start: bool) -> Option<&str> {
     let indent = match prefix.rfind('\n') {
         Some(newline) => &prefix[newline + 1..],
         None if at_line_start => prefix,
@@ -107,7 +107,7 @@ fn line_start(prefix: &str, at_line_start: bool) -> Option<&str> {
 /// whitespace follows the tag on its line.
 ///
 /// The end of the template ends a line too, so a tag with nothing after it stands alone.
-fn line_end(postfix: &str) -> Option<&str> {
+pub(crate) fn line_end(postfix: &str) -> Option<&str> {
     let rest = postfix.trim_start_matches(BLANK);
     // `\r\n` goes as one, or the `\r` would be left behind as stray output.
     rest.strip_prefix("\r\n")
