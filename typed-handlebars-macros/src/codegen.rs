@@ -23,6 +23,19 @@
 //! `Render` impl its value goes through. Inference fills it in and `PhantomData` holds it, and it
 //! is what lets `{{ x }}` accept an `Option` — see `typed_handlebars::Render`.
 //!
+//! Markers are declared *after* every value, each defaulting to `ViaDisplay`, so a caller who names
+//! a generated type writes `Template<i64, bool, &String>` rather than
+//! `Template<i64, ViaDisplay, bool, &String, ViaDisplay>`. Naming one is how an application factors
+//! the mapping from its own types into a helper or a `From` impl, instead of repeating the wiring at
+//! every call site; markers interleaved with values made that signature unwriteable in practice.
+//! Since a default can only be elided from the right, an `Option` leaf — whose marker is `ViaOption`
+//! rather than the default — still has to be spelled, along with every marker before it.
+//!
+//! The marker cannot move off the struct altogether. A template implements `Display` so that a
+//! nested one writes straight into its parent's buffer, and `Display::fmt` takes no generic
+//! parameters — so `impl<T0, K0> Display for Template<T0> where T0: Render<K0>` leaves `K0`
+//! unconstrained (`E0207`). Being a struct parameter is what makes it inferable at all.
+//!
 //! Sequences are bound by `I: AsRef<[Item]>`, which is what lets `render(&self)` walk a list
 //! without consuming it — so the caller can pass a list they still own, and a template can iterate
 //! the same list twice. `as_ref()` compiles to nothing.
@@ -48,6 +61,13 @@ struct Shape {
     /// Needed because `Empty` is a list of *any* item type, so an unset list has to name a concrete
     /// empty — `Absent<item>` — or the item type cannot be inferred.
     param_empties: Vec<TokenStream>,
+    /// Which entries of `params` are `Render` markers rather than values the caller supplies.
+    ///
+    /// Parallel to `params`, and the reason it is stored rather than derived: `render_params` is
+    /// drained into predicates by the time a parent absorbs this shape, so by then nothing else
+    /// remembers which parameters were markers. Declaration order needs that after the fact — see
+    /// [`Shape::order`].
+    is_marker: Vec<bool>,
     /// The subset of `params` that appears in this type's own fields.
     ///
     /// A list's item type is named only in that list's `AsRef` bound, so its parameters need a
@@ -80,6 +100,7 @@ impl Shape {
         Self {
             params: Vec::new(),
             param_empties: Vec::new(),
+            is_marker: Vec::new(),
             field_params: Vec::new(),
             render_params: Vec::new(),
             truthy_params: Vec::new(),
@@ -92,10 +113,70 @@ impl Shape {
         }
     }
 
+    /// Declaration order: the values a caller supplies first, then the markers.
+    ///
+    /// Markers are filled in by inference and defaulted at the point of declaration, and a default
+    /// can only be elided from the right — so a marker sitting between two values would force the
+    /// caller to spell it. Kept last, `Todo<i64, ViaDisplay, bool, &String, ViaDisplay>` is written
+    /// `Todo<i64, bool, &String>` instead, which is what makes the type nameable in a signature.
+    ///
+    /// Relative order is stable within each group, and every emission of a type's parameters goes
+    /// through this, so a parent and its child always agree on what `Child<…>` means.
+    fn order(&self) -> Vec<usize> {
+        let values = (0..self.params.len()).filter(|index| !self.is_marker[*index]);
+        let markers = (0..self.params.len()).filter(|index| self.is_marker[*index]);
+        values.chain(markers).collect()
+    }
+
+    /// Parameters in declaration order, for naming this type.
+    fn ordered_params(&self) -> Vec<Ident> {
+        self.order()
+            .into_iter()
+            .map(|index| self.params[index].clone())
+            .collect()
+    }
+
+    /// What each parameter becomes when unset, in declaration order.
+    fn ordered_param_empties(&self) -> Vec<TokenStream> {
+        self.order()
+            .into_iter()
+            .map(|index| self.param_empties[index].clone())
+            .collect()
+    }
+
+    /// Marker flags in declaration order, for a parent absorbing this shape.
+    fn ordered_is_marker(&self) -> Vec<bool> {
+        self.order()
+            .into_iter()
+            .map(|index| self.is_marker[index])
+            .collect()
+    }
+
+    /// Parameters as the `struct` itself declares them, markers carrying their default.
+    ///
+    /// Only the struct: an `impl` may not give a parameter a default, so those name the parameters
+    /// bare via [`Shape::ordered_params`].
+    fn declaration_params(&self, runtime: &TokenStream) -> Vec<TokenStream> {
+        self.order()
+            .into_iter()
+            .map(|index| {
+                let param = &self.params[index];
+                if self.is_marker[index] {
+                    // The same marker an unset field falls back to, so a defaulted parameter and an
+                    // unset one agree. Only `Option` departs from it, and naming its `ViaOption`
+                    // means naming every marker before it.
+                    quote! { #param = #runtime::ViaDisplay }
+                } else {
+                    quote! { #param }
+                }
+            })
+            .collect()
+    }
+
     /// The `PhantomData` this type needs, if any parameter is only named in a bound.
     fn phantom(&self) -> Option<TokenStream> {
-        let unused: Vec<&Ident> = self
-            .params
+        let ordered = self.ordered_params();
+        let unused: Vec<&Ident> = ordered
             .iter()
             .filter(|param| !self.field_params.contains(param))
             .collect();
@@ -208,7 +289,9 @@ fn builder_for(
     );
     let names = &shape.names;
     let types = &shape.types;
-    let params = &shape.params;
+    // `build` and `render` name the built type, so they use its declaration order — bare, since a
+    // method's generics take no defaults.
+    let params = shape.ordered_params();
     let predicates = &shape.predicates;
 
     let slots: Vec<Ident> = (0..names.len()).map(|i| format_ident!("S{}", i)).collect();
@@ -339,8 +422,10 @@ pub struct Types {
     pub nested: Vec<TokenStream>,
     /// The template's builder — the wiring API.
     pub builder: TokenStream,
-    /// Generic parameters of the template's own type.
+    /// Generic parameters of the template's own type, for naming it in an `impl`.
     pub params: Vec<Ident>,
+    /// The same parameters as the `struct` declares them, markers carrying their default.
+    pub decl_params: Vec<TokenStream>,
     /// Bounds for the `impl` block that carries `render`.
     pub predicates: Vec<TokenStream>,
     /// Field declarations of the template's own type, including any marker.
@@ -385,7 +470,8 @@ pub fn generate(context: &Context, runtime: &TokenStream) -> Types {
     Types {
         nested,
         builder,
-        params: shape.params,
+        params: shape.ordered_params(),
+        decl_params: shape.declaration_params(runtime),
         predicates: shape.predicates,
         declarations,
         initialisers,
@@ -436,6 +522,7 @@ fn build(
 fn render_param(param: &Ident, state: &mut State, shape: &mut Shape) {
     let marker = state.next("K");
     shape.params.push(marker.clone());
+    shape.is_marker.push(true);
     let runtime = &state.runtime;
     shape.param_empties.push(quote! { #runtime::ViaDisplay });
     shape.render_params.push((param.clone(), marker));
@@ -454,6 +541,7 @@ fn field_type(
         FieldKind::Leaf => {
             let param = state.next("T");
             shape.params.push(param.clone());
+            shape.is_marker.push(false);
             shape.param_empties.push(empty_type(&runtime));
             shape.field_params.push(param.clone());
             if field.used_as_value {
@@ -493,6 +581,7 @@ fn field_type(
                 // `{{#each tags}}{{this}}{{/each}}` — the items are values, not records.
                 let param = state.next("T");
                 shape.params.push(param.clone());
+                shape.is_marker.push(false);
                 shape.param_empties.push(empty_type(&runtime));
                 // Bounded by what the template does with the item, exactly as a named field is
                 // above: printed needs `Render`, tested needs `Truthy`, and `{{#if this}}` is a
@@ -511,7 +600,7 @@ fn field_type(
                 let type_name = format_ident!("{}{}Item", prefix, camel(&field.name));
                 let doc = format!("One item of the `{}` list.", field.name);
                 let inner_shape = declare(&type_name, &doc, item, state, nested);
-                let inner_empties = inner_shape.param_empties.clone();
+                let inner_empties = inner_shape.ordered_param_empties();
                 let empty_item = quote! { #type_name<#(#inner_empties),*> };
                 // The item's type is named only in the bound below, never in a field, so its
                 // parameters need the marker.
@@ -521,6 +610,7 @@ fn field_type(
 
             let param = state.next("I");
             shape.params.push(param.clone());
+            shape.is_marker.push(false);
             shape
                 .param_empties
                 .push(quote! { #runtime::Absent<#empty_item> });
@@ -555,7 +645,7 @@ fn empty_type(runtime: &TokenStream) -> TokenStream {
 /// The fallback for an unset record: the generated type with every field empty.
 fn inner_empty(type_name: &Ident, inner: &Shape) -> (TokenStream, TokenStream) {
     let values = inner.empties.iter().map(|(_, value)| value);
-    let empties = &inner.param_empties;
+    let empties = inner.ordered_param_empties();
     (
         quote! { #type_name<#(#empties),*> },
         quote! { #type_name::new(#(#values),*) },
@@ -573,7 +663,8 @@ fn declare(
     let runtime = state.runtime.clone();
     let shape = build(&type_name.to_string(), context, state, nested);
 
-    let params = &shape.params;
+    let params = shape.ordered_params();
+    let decl_params = shape.declaration_params(&runtime);
     let names = &shape.names;
     let types = &shape.types;
     let declarations = shape.all_declarations();
@@ -589,7 +680,7 @@ fn declare(
 
     nested.push(quote! {
         #[doc = #doc]
-        pub struct #type_name<#(#params),*> #where_clause {
+        pub struct #type_name<#(#decl_params),*> #where_clause {
             #(#declarations),*
         }
 
@@ -620,16 +711,21 @@ fn declare(
 /// `in_field` says whether the parent names the child's type in one of its own fields; if it only
 /// appears in a bound, the child's parameters need the parent's `PhantomData`.
 fn absorb(parent: &mut Shape, child: Shape, in_field: bool) -> Vec<Ident> {
-    parent.params.extend(child.params.iter().cloned());
-    parent.param_empties.extend(child.param_empties);
+    // The child's own declaration order, which is what naming `Child<…>` has to use. The parent
+    // stores them in that order too, but re-partitions the whole list for its own declaration — so
+    // the two orders differ, and only this return value is the child's.
+    let params = child.ordered_params();
+    parent.params.extend(params.iter().cloned());
+    parent.param_empties.extend(child.ordered_param_empties());
+    parent.is_marker.extend(child.ordered_is_marker());
     if in_field {
-        parent.field_params.extend(child.params.iter().cloned());
+        parent.field_params.extend(params.iter().cloned());
     }
     // `build` has already turned the child's `render_params` into predicates on the child itself,
     // and predicates come up with it, so there is nothing left to thread here.
     parent.truthy_params.extend(child.truthy_params);
     parent.predicates.extend(child.predicates);
-    child.params
+    params
 }
 
 /// Maps a template variable name to a Rust identifier.

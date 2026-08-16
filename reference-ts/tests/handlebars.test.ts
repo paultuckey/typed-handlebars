@@ -1,11 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import {describe, it} from 'node:test';
+
 import Handlebars from 'handlebars';
+import assert from "node:assert";
 
 describe('Handlebars Reference Tests', () => {
     it('basic_usage', () => {
         const template = Handlebars.compile('<p>{{firstname}} {{lastname}}</p>');
         const result = template({ firstname: "King", lastname: "Tubby" });
-        expect(result).toBe('<p>King Tubby</p>');
+        assert.strictEqual(result, '<p>King Tubby</p>');
     });
 
     it('path_expressions', () => {
@@ -15,17 +17,17 @@ describe('Handlebars Reference Tests', () => {
             lastname: "Tubby",
         };
         const result = template({ person });
-        expect(result).toBe('King Tubby');
+        assert.strictEqual(result, 'King Tubby');
     });
 
     it('if_helper', () => {
         const template = Handlebars.compile('<div>{{#if has_author}}<h1>{{first_name}} {{last_name}}</h1>{{/if}}</div>');
 
         const resultTrue = template({ has_author: true, first_name: "King", last_name: "Tubby" });
-        expect(resultTrue).toBe('<div><h1>King Tubby</h1></div>');
+        assert.strictEqual(resultTrue, '<div><h1>King Tubby</h1></div>');
 
         const resultFalse = template({ has_author: false, first_name: "King", last_name: "Tubby" });
-        expect(resultFalse).toBe('<div></div>');
+        assert.strictEqual(resultFalse, '<div></div>');
     });
 
     it('with_helper', () => {
@@ -35,10 +37,10 @@ describe('Handlebars Reference Tests', () => {
             last_name: "Tubby",
         };
         const resultTrue = template({ author });
-        expect(resultTrue).toBe('<div><h1>King Tubby</h1></div>');
+        assert.strictEqual(resultTrue, '<div><h1>King Tubby</h1></div>');
 
         const resultFalse = template({ author: null });
-        expect(resultFalse).toBe('<div></div>');
+        assert.strictEqual(resultFalse, '<div></div>');
     });
 
     it('with_else_helper', () => {
@@ -50,37 +52,37 @@ describe('Handlebars Reference Tests', () => {
         };
 
         const resultTrue = template({ author });
-        expect(resultTrue).toBe('<div><h1>King</h1></div>');
+        assert.strictEqual(resultTrue, '<div><h1>King</h1></div>');
 
         const resultFalse = template({ author: null });
-        expect(resultFalse).toBe('<div><h1>Unknown</h1></div>');
+        assert.strictEqual(resultFalse, '<div><h1>Unknown</h1></div>');
     });
 
     // Mirrors `a_variable_can_be_tested_and_printed` in the Rust suite: testing a variable must not
     // stop you printing it.
     it('a_variable_can_be_tested_and_printed', () => {
         const template = Handlebars.compile('[{{#if title}}{{title}}{{/if}}]');
-        expect(template({ title: "Dub" })).toBe('[Dub]');
-        expect(template({ title: "" })).toBe('[]');
-        expect(template({ title: 7 })).toBe('[7]');
-        expect(template({ title: 0 })).toBe('[]');
-        expect(template({ title: true })).toBe('[true]');
-        expect(template({ title: false })).toBe('[]');
+        assert.strictEqual(template({ title: "Dub" }), '[Dub]');
+        assert.strictEqual(template({ title: "" }), '[]');
+        assert.strictEqual(template({ title: 7 }), '[7]');
+        assert.strictEqual(template({ title: 0 }), '[]');
+        assert.strictEqual(template({ title: true }), '[true]');
+        assert.strictEqual(template({ title: false }), '[]');
     });
 
     // Mirrors `falsiness_follows_handlebars` in the Rust suite. This is the definition the Rust
     // `Truthy` trait is written against.
     it('falsiness_follows_handlebars', () => {
         const template = Handlebars.compile('[{{#if value}}yes{{/if}}]');
-        expect(template({})).toBe('[]');
-        expect(template({ value: false })).toBe('[]');
-        expect(template({ value: true })).toBe('[yes]');
-        expect(template({ value: "" })).toBe('[]');
-        expect(template({ value: "x" })).toBe('[yes]');
-        expect(template({ value: 0 })).toBe('[]');
-        expect(template({ value: -1 })).toBe('[yes]');
-        expect(template({ value: [] })).toBe('[]');
-        expect(template({ value: [1] })).toBe('[yes]');
+        assert.strictEqual(template({}), '[]');
+        assert.strictEqual(template({ value: false }), '[]');
+        assert.strictEqual(template({ value: true }), '[yes]');
+        assert.strictEqual(template({ value: "" }), '[]');
+        assert.strictEqual(template({ value: "x" }), '[yes]');
+        assert.strictEqual(template({ value: 0 }), '[]');
+        assert.strictEqual(template({ value: -1 }), '[yes]');
+        assert.strictEqual(template({ value: [] }), '[]');
+        assert.strictEqual(template({ value: [1] }), '[yes]');
     });
 
     // Mirrors `absent.rs` in the Rust suite. This is the definition the Rust `Render` impl for
@@ -88,29 +90,29 @@ describe('Handlebars Reference Tests', () => {
     // are values that write themselves.
     it('null_and_undefined_write_nothing', () => {
         const template = Handlebars.compile('[{{ value }}]');
-        expect(template({ value: null })).toBe('[]');
-        expect(template({ value: undefined })).toBe('[]');
-        expect(template({})).toBe('[]');
-        expect(template({ value: "" })).toBe('[]');
-        expect(template({ value: false })).toBe('[false]');
-        expect(template({ value: 0 })).toBe('[0]');
-        expect(template({ value: "Dub" })).toBe('[Dub]');
+        assert.strictEqual(template({ value: null }), '[]');
+        assert.strictEqual(template({ value: undefined }), '[]');
+        assert.strictEqual(template({}), '[]');
+        assert.strictEqual(template({ value: "" }), '[]');
+        assert.strictEqual(template({ value: false }), '[false]');
+        assert.strictEqual(template({ value: 0 }), '[0]');
+        assert.strictEqual(template({ value: "Dub" }), '[Dub]');
     });
 
     // The same, unescaped, and one level down in a record.
     it('null_writes_nothing_raw_or_nested', () => {
         const raw = Handlebars.compile('[{{{ value }}}]');
-        expect(raw({ value: null })).toBe('[]');
+        assert.strictEqual(raw({ value: null }), '[]');
         const nested = Handlebars.compile('[{{ person.nickname }}]');
-        expect(nested({ person: { nickname: null } })).toBe('[]');
+        assert.strictEqual(nested({ person: { nickname: null } }), '[]');
     });
 
     // A nullable column across a loop — the case the Rust side accepts an `Option` for.
     it('null_writes_nothing_inside_each', () => {
         const rows = Handlebars.compile('{{#each rows}}<td>{{ when }}</td>{{/each}}');
-        expect(rows({ rows: [{ when: "now" }, { when: null }] })).toBe('<td>now</td><td></td>');
+        assert.strictEqual(rows({ rows: [{ when: "now" }, { when: null }] }), '<td>now</td><td></td>');
         const items = Handlebars.compile('{{#each tags}}[{{this}}]{{/each}}');
-        expect(items({ tags: ["a", null, "c"] })).toBe('[a][][c]');
+        assert.strictEqual(items({ tags: ["a", null, "c"] }), '[a][][c]');
     });
 
     // Mirrors `length.rs` in the Rust suite. `length` is an ordinary property lookup in
@@ -118,90 +120,90 @@ describe('Handlebars Reference Tests', () => {
     // writes it without thinking, and why the Rust side has to support it.
     it('a_list_reports_how_many_items_it_holds', () => {
         const template = Handlebars.compile('[{{ rows.length }}]');
-        expect(template({ rows: [1, 2, 3] })).toBe('[3]');
-        expect(template({ rows: [] })).toBe('[0]');
+        assert.strictEqual(template({ rows: [1, 2, 3] }), '[3]');
+        assert.strictEqual(template({ rows: [] }), '[0]');
     });
 
     // The distinction the Rust `Absent` type exists for: undefined counts as nothing, where an
     // empty list counts 0.
     it('an_unset_list_counts_as_nothing_rather_than_zero', () => {
         const template = Handlebars.compile('[{{ rows.length }}]');
-        expect(template({})).toBe('[]');
-        expect(template({ rows: undefined })).toBe('[]');
-        expect(template({ rows: [] })).toBe('[0]');
+        assert.strictEqual(template({}), '[]');
+        assert.strictEqual(template({ rows: undefined }), '[]');
+        assert.strictEqual(template({ rows: [] }), '[0]');
     });
 
     it('a_count_can_be_tested', () => {
         const template = Handlebars.compile('{{#if rows.length}}some{{else}}none{{/if}}');
-        expect(template({ rows: [1] })).toBe('some');
-        expect(template({ rows: [] })).toBe('none');
-        expect(template({})).toBe('none');
+        assert.strictEqual(template({ rows: [1] }), 'some');
+        assert.strictEqual(template({ rows: [] }), 'none');
+        assert.strictEqual(template({}), 'none');
     });
 
     it('a_list_can_be_counted_and_iterated', () => {
         const template = Handlebars.compile('{{ rows.length }}:{{#each rows}}{{ name }}{{/each}}');
-        expect(template({ rows: [{ name: "King" }, { name: "Tubby" }] })).toBe('2:KingTubby');
+        assert.strictEqual(template({ rows: [{ name: "King" }, { name: "Tubby" }] }), '2:KingTubby');
     });
 
     // Mirrors `root.rs` in the Rust suite. `@root` is absolute where `@index` and friends are loop
     // state, which is why the Rust side resolves it before the outward walk rather than through it.
     it('the_top_level_is_reachable_from_any_depth', () => {
         const ctx = { title: "Dub", rows: [1, 2], person: { name: "King" } };
-        expect(Handlebars.compile('{{#each rows}}[{{@root.title}}]{{/each}}')(ctx)).toBe('[Dub][Dub]');
-        expect(Handlebars.compile('{{#with person}}[{{@root.title}}]{{/with}}')(ctx)).toBe('[Dub]');
-        expect(Handlebars.compile('[{{@root.title}}]')(ctx)).toBe('[Dub]');
-        expect(Handlebars.compile('{{#each rows}}[{{@root.person.name}}]{{/each}}')(ctx)).toBe('[King][King]');
+        assert.strictEqual(Handlebars.compile('{{#each rows}}[{{@root.title}}]{{/each}}')(ctx), '[Dub][Dub]');
+        assert.strictEqual(Handlebars.compile('{{#with person}}[{{@root.title}}]{{/with}}')(ctx), '[Dub]');
+        assert.strictEqual(Handlebars.compile('[{{@root.title}}]')(ctx), '[Dub]');
+        assert.strictEqual(Handlebars.compile('{{#each rows}}[{{@root.person.name}}]{{/each}}')(ctx), '[King][King]');
     });
 
     // The reason `../` is stripped rather than walked on the Rust side.
     it('a_parent_prefix_makes_no_difference_to_root', () => {
         const ctx = { title: "Dub", rows: [1, 2] };
-        expect(Handlebars.compile('{{#each rows}}[{{@../root.title}}]{{/each}}')(ctx)).toBe('[Dub][Dub]');
+        assert.strictEqual(Handlebars.compile('{{#each rows}}[{{@../root.title}}]{{/each}}')(ctx), '[Dub][Dub]');
     });
 
     it('the_root_can_be_tested_counted_and_used_as_a_subject', () => {
         const ctx = { title: "Dub", rows: [{ name: "King" }], person: { name: "Tubby" } };
-        expect(Handlebars.compile('{{#each rows}}[{{#if @root.title}}y{{/if}}]{{/each}}')(ctx)).toBe('[y]');
-        expect(Handlebars.compile('{{#each rows}}[{{@root.rows.length}}]{{/each}}')(ctx)).toBe('[1]');
-        expect(Handlebars.compile('{{#each @root.rows}}[{{ name }}]{{/each}}')(ctx)).toBe('[King]');
-        expect(Handlebars.compile('{{#with @root.person}}[{{ name }}]{{/with}}')(ctx)).toBe('[Tubby]');
+        assert.strictEqual(Handlebars.compile('{{#each rows}}[{{#if @root.title}}y{{/if}}]{{/each}}')(ctx), '[y]');
+        assert.strictEqual(Handlebars.compile('{{#each rows}}[{{@root.rows.length}}]{{/each}}')(ctx), '[1]');
+        assert.strictEqual(Handlebars.compile('{{#each @root.rows}}[{{ name }}]{{/each}}')(ctx), '[King]');
+        assert.strictEqual(Handlebars.compile('{{#with @root.person}}[{{ name }}]{{/with}}')(ctx), '[Tubby]');
     });
 
     // Why bare `{{@root}}` is a named error on the Rust side rather than a guess: there is nothing
     // useful to write for the whole context.
     it('bare_root_writes_the_object_itself', () => {
-        expect(Handlebars.compile('[{{@root}}]')({ title: "Dub" })).toBe('[[object Object]]');
+        assert.strictEqual(Handlebars.compile('[{{@root}}]')({ title: "Dub" }), '[[object Object]]');
     });
 
     it('a_list_can_be_tested_and_iterated', () => {
         const template = Handlebars.compile('{{#if rows}}<ul>{{#each rows}}<li>{{name}}</li>{{/each}}</ul>{{/if}}');
-        expect(template({ rows: [{ name: "King" }] })).toBe('<ul><li>King</li></ul>');
-        expect(template({})).toBe('');
+        assert.strictEqual(template({ rows: [{ name: "King" }] }), '<ul><li>King</li></ul>');
+        assert.strictEqual(template({}), '');
     });
 
     // Mirrors `double_braces_escape_and_triple_braces_do_not` in the Rust suite.
     it('double_braces_escape_and_triple_braces_do_not', () => {
         const template = Handlebars.compile('<p>{{ two }}|{{{ three }}}</p>');
         const result = template({ two: "a&b<c>", three: "a&b<c>" });
-        expect(result).toBe('<p>a&amp;b&lt;c&gt;|a&b<c></p>');
+        assert.strictEqual(result, '<p>a&amp;b&lt;c&gt;|a&b<c></p>');
     });
 
     // Mirrors `escaping_covers_the_handlebars_character_set`. This is the definition the Rust
     // escaper is written against.
     it('escaping_covers_the_handlebars_character_set', () => {
         const template = Handlebars.compile('{{ value }}');
-        expect(template({ value: `& < > " ' \` =` }))
-            .toBe('&amp; &lt; &gt; &quot; &#x27; &#x60; &#x3D;');
-        expect(template({ value: "plain text 123" })).toBe('plain text 123');
-        expect(template({ value: "héllo → <b>" })).toBe('héllo → &lt;b&gt;');
+        assert.strictEqual(template({ value: `& < > " ' \` =` }),
+            '&amp; &lt; &gt; &quot; &#x27; &#x60; &#x3D;');
+        assert.strictEqual(template({ value: "plain text 123" }), 'plain text 123');
+        assert.strictEqual(template({ value: "héllo → <b>" }), 'héllo → &lt;b&gt;');
     });
 
     it('escaping_applies_inside_blocks_and_records', () => {
         const list = Handlebars.compile('{{#each rows}}<li>{{name}}</li>{{/each}}');
-        expect(list({ rows: [{ name: "Tom & Jerry" }] })).toBe('<li>Tom &amp; Jerry</li>');
+        assert.strictEqual(list({ rows: [{ name: "Tom & Jerry" }] }), '<li>Tom &amp; Jerry</li>');
 
         const record = Handlebars.compile('{{person.name}}');
-        expect(record({ person: { name: "<script>" } })).toBe('&lt;script&gt;');
+        assert.strictEqual(record({ person: { name: "<script>" } }), '&lt;script&gt;');
     });
 
     // Mirrors `a_partial_renders_against_the_context_it_was_included_from`. A partial rendering
@@ -212,13 +214,13 @@ describe('Handlebars Reference Tests', () => {
 
         const template = Handlebars.compile('{{> header}}<ul>{{#each rows}}{{> row}}{{/each}}</ul>');
         const result = template({ title: "Dub", rows: [{ id: 1, name: "King" }, { id: 2, name: "Tubby" }] });
-        expect(result).toBe('<h1>Dub</h1><ul><li id="r1">King</li><li id="r2">Tubby</li></ul>');
+        assert.strictEqual(result, '<h1>Dub</h1><ul><li id="r1">King</li><li id="r2">Tubby</li></ul>');
     });
 
     it('values_written_by_a_partial_are_escaped', () => {
         Handlebars.registerPartial('row', '<li id="r{{ id }}">{{ name }}</li>');
         const template = Handlebars.compile('{{> row}}');
-        expect(template({ id: 1, name: "Tom & Jerry" })).toBe('<li id="r1">Tom &amp; Jerry</li>');
+        assert.strictEqual(template({ id: 1, name: "Tom & Jerry" }), '<li id="r1">Tom &amp; Jerry</li>');
     });
 
     // The rest of the supported subset, so every construct the README lists as working is checked
@@ -226,90 +228,90 @@ describe('Handlebars Reference Tests', () => {
 
     it('each_index', () => {
         const template = Handlebars.compile('{{#each rows}}{{@index}}:{{name}} {{/each}}');
-        expect(template({ rows: [{ name: "a" }, { name: "b" }] })).toBe('0:a 1:b ');
+        assert.strictEqual(template({ rows: [{ name: "a" }, { name: "b" }] }), '0:a 1:b ');
     });
 
     it('each_first_and_last', () => {
         const template = Handlebars.compile('{{#each xs}}[{{@first}},{{@last}},{{@index}}]{{/each}}');
-        expect(template({ xs: [1, 2, 3] }))
-            .toBe('[true,false,0][false,false,1][false,true,2]');
+        assert.strictEqual(template({ xs: [1, 2, 3] }),
+            '[true,false,0][false,false,1][false,true,2]');
         // A one-item list is both, which is what makes them a pair of independent tests rather
         // than "is the index zero".
-        expect(Handlebars.compile('{{#each xs}}[{{@first}},{{@last}}]{{/each}}')({ xs: [9] }))
-            .toBe('[true,true]');
+        assert.strictEqual(Handlebars.compile('{{#each xs}}[{{@first}},{{@last}}]{{/each}}')({ xs: [9] }),
+            '[true,true]');
     });
 
     it('each_first_and_last_are_conditions_too', () => {
         const separator = Handlebars.compile('{{#each xs}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}');
-        expect(separator({ xs: [1, 2, 3] })).toBe('1, 2, 3');
+        assert.strictEqual(separator({ xs: [1, 2, 3] }), '1, 2, 3');
 
         const firstOnly = Handlebars.compile('{{#each xs}}{{#if @first}}F{{else}}-{{/if}}{{/each}}');
-        expect(firstOnly({ xs: [1, 2, 3] })).toBe('F--');
+        assert.strictEqual(firstOnly({ xs: [1, 2, 3] }), 'F--');
     });
 
     // An `@…` comes from the loop, and blocks that supply nothing are transparent to it. These pin
     // the rule the Rust lookup was written against.
     it('a_private_is_visible_through_blocks_that_supply_nothing', () => {
         const insideIf = Handlebars.compile('{{#each xs}}{{#if on}}[{{@index}}]{{/if}}{{/each}}');
-        expect(insideIf({ xs: [{ on: true }, { on: false }] })).toBe('[0]');
+        assert.strictEqual(insideIf({ xs: [{ on: true }, { on: false }] }), '[0]');
 
         const insideWith = Handlebars.compile('{{#each rows}}{{#with p}}[{{@index}}:{{n}}]{{/with}}{{/each}}');
-        expect(insideWith({ rows: [{ p: { n: 'a' } }, { p: { n: 'b' } }] })).toBe('[0:a][1:b]');
+        assert.strictEqual(insideWith({ rows: [{ p: { n: 'a' } }, { p: { n: 'b' } }] }), '[0:a][1:b]');
 
         const chained = Handlebars.compile('{{#each xs}}{{#if @last}}L{{else if @first}}F{{else}}m{{/if}}{{/each}}');
-        expect(chained({ xs: [1, 2, 3] })).toBe('FmL');
+        assert.strictEqual(chained({ xs: [1, 2, 3] }), 'FmL');
     });
 
     // `../` on a private counts loops, not blocks: both of these read the *outer* loop's index
     // even though a block sits in between.
     it('a_parent_private_steps_out_one_loop_not_one_block', () => {
         const throughIf = Handlebars.compile('{{#each rows}}{{#each cells}}{{#if on}}{{@../index}}{{/if}}{{/each}};{{/each}}');
-        expect(throughIf({ rows: [{ cells: [{ on: true }, { on: true }] }, { cells: [{ on: true }] }] }))
-            .toBe('00;1;');
+        assert.strictEqual(throughIf({ rows: [{ cells: [{ on: true }, { on: true }] }, { cells: [{ on: true }] }] }),
+            '00;1;');
 
         const throughWith = Handlebars.compile('{{#each rows}}{{#each cells}}{{#with q}}{{@../index}}{{/with}}{{/each}};{{/each}}');
-        expect(throughWith({ rows: [{ cells: [{ q: {} }, { q: {} }] }, { cells: [{ q: {} }] }] }))
-            .toBe('00;1;');
+        assert.strictEqual(throughWith({ rows: [{ cells: [{ q: {} }, { q: {} }] }, { cells: [{ q: {} }] }] }),
+            '00;1;');
     });
 
     it('each_first_reaches_the_enclosing_loop', () => {
         const template = Handlebars.compile('{{#each rows}}{{#each cells}}{{@../first}}/{{@first}};{{/each}}|{{/each}}');
-        expect(template({ rows: [{ cells: [1, 2] }, { cells: [3] }] }))
-            .toBe('true/true;true/false;|false/true;|');
+        assert.strictEqual(template({ rows: [{ cells: [1, 2] }, { cells: [3] }] }),
+            'true/true;true/false;|false/true;|');
     });
 
     it('each_else', () => {
         const template = Handlebars.compile('{{#each rows}}{{name}}{{else}}none{{/each}}');
-        expect(template({ rows: [{ name: "a" }] })).toBe('a');
-        expect(template({ rows: [] })).toBe('none');
+        assert.strictEqual(template({ rows: [{ name: "a" }] }), 'a');
+        assert.strictEqual(template({ rows: [] }), 'none');
     });
 
     it('unless_else', () => {
         const template = Handlebars.compile('{{#unless a}}no{{else}}yes{{/unless}}');
-        expect(template({ a: false })).toBe('no');
-        expect(template({ a: true })).toBe('yes');
+        assert.strictEqual(template({ a: false }), 'no');
+        assert.strictEqual(template({ a: true }), 'yes');
     });
 
     it('else_if_chains', () => {
         const template = Handlebars.compile('{{#if a}}A{{else if b}}B{{else}}C{{/if}}');
-        expect(template({ a: true, b: false })).toBe('A');
-        expect(template({ a: false, b: true })).toBe('B');
-        expect(template({ a: false, b: false })).toBe('C');
+        assert.strictEqual(template({ a: true, b: false }), 'A');
+        assert.strictEqual(template({ a: false, b: true }), 'B');
+        assert.strictEqual(template({ a: false, b: false }), 'C');
     });
 
     it('else_if_chains_more_than_once', () => {
         const template = Handlebars.compile('{{#if a}}A{{else if b}}B{{else if c}}C{{else}}D{{/if}}');
-        expect(template({ c: true })).toBe('C');
-        expect(template({})).toBe('D');
+        assert.strictEqual(template({ c: true }), 'C');
+        assert.strictEqual(template({}), 'D');
 
         const noFinalElse = Handlebars.compile('{{#if a}}A{{else if b}}B{{/if}}');
-        expect(noFinalElse({})).toBe('');
+        assert.strictEqual(noFinalElse({}), '');
     });
 
     it('an_else_if_condition_is_truthy_not_bool', () => {
         const template = Handlebars.compile('{{#if a}}A{{else if name}}[{{name}}]{{else}}C{{/if}}');
-        expect(template({ name: "King" })).toBe('[King]');
-        expect(template({ name: "" })).toBe('C');
+        assert.strictEqual(template({ name: "King" }), '[King]');
+        assert.strictEqual(template({ name: "" }), 'C');
     });
 
     // The chained helper decides the sense of the test, not the block it sits in. This is the
@@ -317,67 +319,67 @@ describe('Handlebars Reference Tests', () => {
     // reasoning about it.
     it('a_chained_helper_sets_its_own_sense', () => {
         const insideUnless = Handlebars.compile('{{#unless a}}U{{else if b}}B{{else}}C{{/unless}}');
-        expect(insideUnless({ a: false, b: true })).toBe('U');
-        expect(insideUnless({ a: true, b: true })).toBe('B');
-        expect(insideUnless({ a: true, b: false })).toBe('C');
+        assert.strictEqual(insideUnless({ a: false, b: true }), 'U');
+        assert.strictEqual(insideUnless({ a: true, b: true }), 'B');
+        assert.strictEqual(insideUnless({ a: true, b: false }), 'C');
 
         const elseUnless = Handlebars.compile('{{#if a}}A{{else unless b}}B{{else}}C{{/if}}');
-        expect(elseUnless({})).toBe('B');
-        expect(elseUnless({ b: true })).toBe('C');
+        assert.strictEqual(elseUnless({}), 'B');
+        assert.strictEqual(elseUnless({ b: true }), 'C');
     });
 
     it('an_else_if_condition_resolves_in_its_own_scope', () => {
         const dotted = Handlebars.compile('{{#if a}}A{{else if person.name}}B{{else}}C{{/if}}');
-        expect(dotted({ person: { name: "King" } })).toBe('B');
+        assert.strictEqual(dotted({ person: { name: "King" } }), 'B');
 
         const inEach = Handlebars.compile('{{#each rows}}{{#if hot}}H{{else if warm}}W{{else}}C{{/if}};{{/each}}');
-        expect(inEach({ rows: [{ hot: true }, { warm: true }, {}] })).toBe('H;W;C;');
+        assert.strictEqual(inEach({ rows: [{ hot: true }, { warm: true }, {}] }), 'H;W;C;');
     });
 
     it('else_may_be_spaced', () => {
         const template = Handlebars.compile('{{#if a}}A{{ else }}B{{/if}}');
-        expect(template({ a: false })).toBe('B');
+        assert.strictEqual(template({ a: false }), 'B');
 
         // The word boundary matters: this one is a variable, not a branch.
         const elsewhere = Handlebars.compile('[{{ elsewhere }}]');
-        expect(elsewhere({ elsewhere: "town" })).toBe('[town]');
+        assert.strictEqual(elsewhere({ elsewhere: "town" }), '[town]');
     });
 
     it('each_block_param', () => {
         const template = Handlebars.compile('{{#each rows as |row|}}[{{row.name}}]{{/each}}');
-        expect(template({ rows: [{ name: "a" }, { name: "b" }] })).toBe('[a][b]');
+        assert.strictEqual(template({ rows: [{ name: "a" }, { name: "b" }] }), '[a][b]');
     });
 
     it('parent_scope', () => {
         const template = Handlebars.compile('{{#each rows}}{{name}} of {{../company}};{{/each}}');
-        expect(template({ company: "Studio One", rows: [{ name: "King" }] }))
-            .toBe('King of Studio One;');
+        assert.strictEqual(template({ company: "Studio One", rows: [{ name: "King" }] }),
+            'King of Studio One;');
     });
 
     // A comment's trimming close puts the `~` inside the token, which is what made the long form
     // hard: `--~}}` shares no prefix with `--}}`. These four pin what handlebars.js actually does.
     it('a_comment_can_trim_the_whitespace_after_it', () => {
-        expect(Handlebars.compile('x{{!-- c --~}}   y')({})).toBe('xy');
-        expect(Handlebars.compile('x{{! c ~}}   y')({})).toBe('xy');
-        expect(Handlebars.compile('x   {{~!-- c --~}}\n\n   y')({})).toBe('xy');
+        assert.strictEqual(Handlebars.compile('x{{!-- c --~}}   y')({}), 'xy');
+        assert.strictEqual(Handlebars.compile('x{{! c ~}}   y')({}), 'xy');
+        assert.strictEqual(Handlebars.compile('x   {{~!-- c --~}}\n\n   y')({}), 'xy');
         // Without the `~` the whitespace stays, which is what makes the rest mean something.
-        expect(Handlebars.compile('x{{!-- c --}}   y')({})).toBe('x   y');
+        assert.strictEqual(Handlebars.compile('x{{!-- c --}}   y')({}), 'x   y');
     });
 
     it('a_comment_ends_at_its_first_close', () => {
-        expect(Handlebars.compile('x{{!-- a --}} b --~}}   y')({})).toBe('x b --~}}   y');
+        assert.strictEqual(Handlebars.compile('x{{!-- a --}} b --~}}   y')({}), 'x b --~}}   y');
     });
 
     it('a_comment_may_be_empty', () => {
-        expect(Handlebars.compile('x{{!}}y')({})).toBe('xy');
-        expect(Handlebars.compile('x{{!----}}y')({})).toBe('xy');
-        expect(Handlebars.compile('x{{!~}}   y')({})).toBe('xy');
+        assert.strictEqual(Handlebars.compile('x{{!}}y')({}), 'xy');
+        assert.strictEqual(Handlebars.compile('x{{!----}}y')({}), 'xy');
+        assert.strictEqual(Handlebars.compile('x{{!~}}   y')({}), 'xy');
         // `{{}}` has no name and is not a comment, so it stays a parse error in both.
-        expect(() => Handlebars.compile('x{{}}y')({})).toThrow();
+        assert.throws(() => Handlebars.compile('x{{}}y')({}));
     });
 
     it('a_long_comment_swallows_braces_and_stray_tildes', () => {
-        expect(Handlebars.compile('x{{!-- {{a}} and ~}} and -- --}}y')({})).toBe('xy');
+        assert.strictEqual(Handlebars.compile('x{{!-- {{a}} and ~}} and -- --}}y')({}), 'xy');
     });
 
     // A tag alone on its line leaves no trace: its indentation and its trailing newline both go.
@@ -386,52 +388,52 @@ describe('Handlebars Reference Tests', () => {
 
     it('a_list_over_several_lines_renders_as_written', () => {
         const template = Handlebars.compile('<ul>\n{{#each rows}}\n  <li>{{n}}</li>\n{{/each}}\n</ul>');
-        expect(template({ rows: [{ n: 1 }, { n: 2 }] }))
-            .toBe('<ul>\n  <li>1</li>\n  <li>2</li>\n</ul>');
+        assert.strictEqual(template({ rows: [{ n: 1 }, { n: 2 }] }),
+            '<ul>\n  <li>1</li>\n  <li>2</li>\n</ul>');
     });
 
     it('a_standalone_tag_takes_its_indentation_and_its_newline', () => {
-        expect(Handlebars.compile('a\n{{#if x}}\nB\n{{/if}}\nc')({ x: 1 })).toBe('a\nB\nc');
-        expect(Handlebars.compile('a\n  {{#if x}}\n  B\n  {{/if}}\nc')({ x: 1 })).toBe('a\n  B\nc');
-        expect(Handlebars.compile('a\n\t{{#if x}}\nB\n{{/if}}\nb')({ x: 1 })).toBe('a\nB\nb');
+        assert.strictEqual(Handlebars.compile('a\n{{#if x}}\nB\n{{/if}}\nc')({ x: 1 }), 'a\nB\nc');
+        assert.strictEqual(Handlebars.compile('a\n  {{#if x}}\n  B\n  {{/if}}\nc')({ x: 1 }), 'a\n  B\nc');
+        assert.strictEqual(Handlebars.compile('a\n\t{{#if x}}\nB\n{{/if}}\nb')({ x: 1 }), 'a\nB\nb');
     });
 
     it('comments_and_else_stand_alone', () => {
-        expect(Handlebars.compile('a\n{{! hi }}\nc')({})).toBe('a\nc');
+        assert.strictEqual(Handlebars.compile('a\n{{! hi }}\nc')({}), 'a\nc');
         const branches = Handlebars.compile('a\n{{#if x}}\nB\n{{else}}\nC\n{{/if}}\nd');
-        expect(branches({ x: 1 })).toBe('a\nB\nd');
-        expect(branches({ x: 0 })).toBe('a\nC\nd');
+        assert.strictEqual(branches({ x: 1 }), 'a\nB\nd');
+        assert.strictEqual(branches({ x: 0 }), 'a\nC\nd');
     });
 
     // The line between the two halves of the rule: an interpolation is there to produce output,
     // so its line is real.
     it('an_interpolation_is_not_standalone', () => {
-        expect(Handlebars.compile('a\n{{n}}\nb')({ n: 'N' })).toBe('a\nN\nb');
-        expect(Handlebars.compile('a\n{{{n}}}\nb')({ n: 'N' })).toBe('a\nN\nb');
+        assert.strictEqual(Handlebars.compile('a\n{{n}}\nb')({ n: 'N' }), 'a\nN\nb');
+        assert.strictEqual(Handlebars.compile('a\n{{{n}}}\nb')({ n: 'N' }), 'a\nN\nb');
     });
 
     it('anything_else_on_the_line_cancels_it', () => {
-        expect(Handlebars.compile('a\n{{#if x}} z\nB\n{{/if}}\nc')({ x: 1 })).toBe('a\n z\nB\nc');
-        expect(Handlebars.compile('a\n{{#if x}}{{/if}}\nb')({ x: 1 })).toBe('a\n\nb');
-        expect(Handlebars.compile('a\n{{! c }} {{! d }}\nz')({})).toBe('a\n \nz');
+        assert.strictEqual(Handlebars.compile('a\n{{#if x}} z\nB\n{{/if}}\nc')({ x: 1 }), 'a\n z\nB\nc');
+        assert.strictEqual(Handlebars.compile('a\n{{#if x}}{{/if}}\nb')({ x: 1 }), 'a\n\nb');
+        assert.strictEqual(Handlebars.compile('a\n{{! c }} {{! d }}\nz')({}), 'a\n \nz');
     });
 
     it('the_edges_of_the_template_bound_a_line', () => {
-        expect(Handlebars.compile('{{#if x}}\nB\n{{/if}}\nc')({ x: 1 })).toBe('B\nc');
-        expect(Handlebars.compile('  {{#if x}}\nB\n{{/if}}\nc')({ x: 1 })).toBe('B\nc');
-        expect(Handlebars.compile('a\n{{#if x}}\nB\n{{/if}}')({ x: 1 })).toBe('a\nB\n');
-        expect(Handlebars.compile('a\n{{#if x}}\nB\n{{/if}}   ')({ x: 1 })).toBe('a\nB\n');
-        expect(Handlebars.compile('{{! c }}')({})).toBe('');
+        assert.strictEqual(Handlebars.compile('{{#if x}}\nB\n{{/if}}\nc')({ x: 1 }), 'B\nc');
+        assert.strictEqual(Handlebars.compile('  {{#if x}}\nB\n{{/if}}\nc')({ x: 1 }), 'B\nc');
+        assert.strictEqual(Handlebars.compile('a\n{{#if x}}\nB\n{{/if}}')({ x: 1 }), 'a\nB\n');
+        assert.strictEqual(Handlebars.compile('a\n{{#if x}}\nB\n{{/if}}   ')({ x: 1 }), 'a\nB\n');
+        assert.strictEqual(Handlebars.compile('{{! c }}')({}), '');
     });
 
     it('standing_alone_carries_forward_to_the_next_tag', () => {
-        expect(Handlebars.compile('a\n{{! c }}\n  {{#if x}}\nB\n{{/if}}\nz')({ x: 1 })).toBe('a\nB\nz');
-        expect(Handlebars.compile('a\n{{! c }}\n{{! d }}\nz')({})).toBe('a\nz');
-        expect(Handlebars.compile('a\n{{! c }}\n{{n}}\nz')({ n: 'N' })).toBe('a\nN\nz');
+        assert.strictEqual(Handlebars.compile('a\n{{! c }}\n  {{#if x}}\nB\n{{/if}}\nz')({ x: 1 }), 'a\nB\nz');
+        assert.strictEqual(Handlebars.compile('a\n{{! c }}\n{{! d }}\nz')({}), 'a\nz');
+        assert.strictEqual(Handlebars.compile('a\n{{! c }}\n{{n}}\nz')({ n: 'N' }), 'a\nN\nz');
     });
 
     it('only_the_tags_own_newline_is_taken', () => {
-        expect(Handlebars.compile('a\n\n{{! c }}\n\nb')({})).toBe('a\n\n\nb');
+        assert.strictEqual(Handlebars.compile('a\n\n{{! c }}\n\nb')({}), 'a\n\n\nb');
     });
 
     // A partial alone on its line is standalone too, and its indentation is applied to every line
@@ -439,25 +441,25 @@ describe('Handlebars Reference Tests', () => {
     // `typed-handlebars/tests/standalone.rs`, whose fixtures hold these same strings.
     it('a_standalone_partial_indents_every_line', () => {
         Handlebars.registerPartial('three_lines', '<a>\n<b>\n<c>');
-        expect(Handlebars.compile('start\n    {{> three_lines}}\nend')({}))
-            .toBe('start\n    <a>\n    <b>\n    <c>end');
+        assert.strictEqual(Handlebars.compile('start\n    {{> three_lines}}\nend')({}),
+            'start\n    <a>\n    <b>\n    <c>end');
 
         // Anything else on the line and it is an ordinary partial: no indent, newline kept.
-        expect(Handlebars.compile('start\n  x{{> three_lines}}\nend')({}))
-            .toBe('start\n  x<a>\n<b>\n<c>\nend');
+        assert.strictEqual(Handlebars.compile('start\n  x{{> three_lines}}\nend')({}),
+            'start\n  x<a>\n<b>\n<c>\nend');
 
         // The end of the template ends the line here too.
-        expect(Handlebars.compile('start\n    {{> three_lines}}')({}))
-            .toBe('start\n    <a>\n    <b>\n    <c>');
+        assert.strictEqual(Handlebars.compile('start\n    {{> three_lines}}')({}),
+            'start\n    <a>\n    <b>\n    <c>');
     });
 
     it('a_standalone_partial_leaves_no_dangling_indent', () => {
         Handlebars.registerPartial('ends_with_newline', '<a>\n');
-        expect(Handlebars.compile('start\n    {{> ends_with_newline}}\nend')({}))
-            .toBe('start\n    <a>\nend');
+        assert.strictEqual(Handlebars.compile('start\n    {{> ends_with_newline}}\nend')({}),
+            'start\n    <a>\nend');
 
         Handlebars.registerPartial('nothing', '');
-        expect(Handlebars.compile('start\n    {{> nothing}}\nend')({})).toBe('start\nend');
+        assert.strictEqual(Handlebars.compile('start\n    {{> nothing}}\nend')({}), 'start\nend');
     });
 
     // Indents accumulate rather than replace: a partial included from inside another standalone
@@ -465,28 +467,28 @@ describe('Handlebars Reference Tests', () => {
     it('nested_standalone_partials_add_their_indents', () => {
         Handlebars.registerPartial('one_line', '<a>');
         Handlebars.registerPartial('includes_another', 'X\n  {{> one_line}}\nY');
-        expect(Handlebars.compile('start\n    {{> includes_another}}\nend')({}))
-            .toBe('start\n    X\n      <a>Yend');
+        assert.strictEqual(Handlebars.compile('start\n    {{> includes_another}}\nend')({}),
+            'start\n    X\n      <a>Yend');
 
-        expect(Handlebars.compile('start\n    {{> one_line}}\nend')({})).toBe('start\n    <a>end');
-        expect(Handlebars.compile('start\n{{> one_line}}\nend')({})).toBe('start\n<a>end');
+        assert.strictEqual(Handlebars.compile('start\n    {{> one_line}}\nend')({}), 'start\n    <a>end');
+        assert.strictEqual(Handlebars.compile('start\n{{> one_line}}\nend')({}), 'start\n<a>end');
     });
 
     // Testing the loop item itself, rather than a field on it. The Rust side needs the item's
     // generated parameter bounded by `Truthy` for this, which is what makes it worth pinning.
     it('testing_the_item_itself_bounds_it', () => {
-        expect(Handlebars.compile('{{#each xs}}{{#if this}}[{{this}}]{{/if}}{{/each}}')({ xs: [1, 0, 2] }))
-            .toBe('[1][2]');
-        expect(Handlebars.compile('{{#each xs}}{{#unless this}}n{{/unless}}{{/each}}')({ xs: [1, 0] }))
-            .toBe('n');
+        assert.strictEqual(Handlebars.compile('{{#each xs}}{{#if this}}[{{this}}]{{/if}}{{/each}}')({ xs: [1, 0, 2] }),
+            '[1][2]');
+        assert.strictEqual(Handlebars.compile('{{#each xs}}{{#unless this}}n{{/unless}}{{/each}}')({ xs: [1, 0] }),
+            'n');
         // An alias reaches the same scope as `this`.
-        expect(Handlebars.compile('{{#each xs as |x|}}{{#if x}}[{{x}}]{{/if}}{{/each}}')({ xs: ['a', ''] }))
-            .toBe('[a]');
+        assert.strictEqual(Handlebars.compile('{{#each xs as |x|}}{{#if x}}[{{x}}]{{/if}}{{/each}}')({ xs: ['a', ''] }),
+            '[a]');
     });
 
     it('whitespace_trimming', () => {
         const template = Handlebars.compile('  {{~#if some ~}}   Hello{{~/if~}}');
-        expect(template({ some: true })).toBe('Hello');
+        assert.strictEqual(template({ some: true }), 'Hello');
     });
 
     // KNOWN DIVERGENCE. In handlebars.js a raw block calls a helper of that name and renders
@@ -495,30 +497,30 @@ describe('Handlebars Reference Tests', () => {
     // passthrough helper were registered, which is the second case below.
     it('literal_block_needs_a_helper_in_handlebars_js', () => {
         const source = '{{{{skip}}}}wang doodle{{{{/skip}}}}';
-        expect(Handlebars.compile(source)({})).toBe('');
+        assert.strictEqual(Handlebars.compile(source)({}), '');
 
         Handlebars.registerHelper('skip', function (this: unknown, options: any) {
             return options.fn();
         });
-        expect(Handlebars.compile(source)({})).toBe('wang doodle');
+        assert.strictEqual(Handlebars.compile(source)({}), 'wang doodle');
     });
 
     it('comments', () => {
         const template = Handlebars.compile('Note: {{! ignored }}and {{!-- {{also_ignored}} --}}done');
-        expect(template({})).toBe('Note: and done');
+        assert.strictEqual(template({}), 'Note: and done');
     });
 
     // Mirrors `variable_names_may_start_with_a_digit`. handlebars.js reads these as variable
     // references, so the Rust side renames them rather than rejecting them.
     it('variable_names_may_start_with_a_digit', () => {
         const template = Handlebars.compile('[{{ 2nd }}][{{ 42 }}]');
-        expect(template({ '2nd': "silver", '42': "answer" })).toBe('[silver][answer]');
+        assert.strictEqual(template({ '2nd': "silver", '42': "answer" }), '[silver][answer]');
     });
 
     it('it_works', () => {
         const template = Handlebars.compile('Hello {{{name}}}!');
         const result = template({ name: "King" });
-        expect(result).toBe('Hello King!');
+        assert.strictEqual(result, 'Hello King!');
     });
 
     it.skip('test_escaped', () => {
@@ -526,7 +528,7 @@ describe('Handlebars Reference Tests', () => {
         // It seems it gets confused by the inner {{{{/dandy}}}}
         const template = Handlebars.compile('{{{{skip}}}}wang doodle {{{{/dandy}}}}{{{{/skip}}}}');
         const result = template({});
-        expect(result).toBe('wang doodle {{{{/dandy}}}}');
+        assert.strictEqual(result, 'wang doodle {{{{/dandy}}}}');
     });
 
 });

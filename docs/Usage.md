@@ -34,6 +34,37 @@ This works by value or by reference, in a record, in `{{#each}}`, and through a 
 `Option` it prints. `false` and `0` are values rather than absences, and render as `false` and `0`.
 
 
+## Naming a generated type
+
+Most call sites let inference produce the template's type and never name it. Once an application has
+more than one call site for the same template, it usually wants the mapping from its own types in one
+place — which means writing the type down:
+
+```rust
+fn todo_item(todo: &Todo) -> todo::Template<i64, bool, &String> {
+    todo::Template::new(todo.id, todo.done, &todo.title)
+}
+
+impl<'a> From<&'a Todo> for todo::Template<i64, bool, &'a String> { /* … */ }
+```
+
+One parameter per variable, in the order the template first mentions them. Rename a variable in the
+`.hbs` and you get one compile error, in the function that owns the mapping, rather than one per call
+site. The value can also be stored — in a struct field, in a `Vec` — which is what makes this
+different from erasing it behind `impl Display`.
+
+A written value carries a hidden marker parameter saying how it renders, but markers are declared
+last and default to `ViaDisplay`, so they can be left off. `Option` is the exception: its marker is
+`ViaOption` (or `ViaOptionRef` by reference), and because Rust only elides defaults from the right,
+every marker before it has to be spelled too:
+
+```rust
+fn pair(b: Option<u32>) -> maybe::Template<&'static str, Option<u32>, ViaDisplay, ViaOption>
+```
+
+Templates with no `Option` leaves elide all of them.
+
+
 ## Reaching the top level
 
 `{{@root.title}}` reads the template's own top-level context from any depth — inside `{{#each}}`,
