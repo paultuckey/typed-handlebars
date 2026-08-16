@@ -40,38 +40,35 @@ mod templates {
     typed_handlebars::directory!("templates/");
 }
 fn get_html() -> String {
-    // templates::button is automatically generated
-    templates::button::Builder::new()
-        .btn_id(42)
-        .btn_name("Save")
-        .render()
+    // templates::button module and struct is automatically generated
+    templates::button::Vars { btn_id: 42, btn_name: "Save" }.render()
 }
 ```
 
-The generated builder names each variable, so nothing depends on argument order, your IDE offers the names
-rather than you retyping them, and a variable renamed in the `.hbs` becomes a compile error at the
-setter rather than a silent change in the output.
+`Vars` is every variable the template uses, in an ordinary struct.
 
-You only set what you have. Anything you leave out renders as empty, a list with no items, or a false
-condition, exactly as an undefined variable does in Handlebars:
+Your IDE can offer the names rather than you retyping them, and every mistake is caught where you made it:
 
-```rust
-templates::button::Builder::new().btn_id(42).render()   // btn_name renders as nothing
+```
+error[E0560]: struct `button::Vars` has no field named `btn_nmae`
+help: a field with a similar name exists: `btn_name`
+
+error[E0063]: missing field `btn_name` in initializer of `button::Vars`
 ```
 
-### Also, a positional function
+That last one is the point of naming them all: add `{{ subtitle }}` to the `.hbs` and every call
+site stops compiling until it says what the subtitle is, rather than quietly rendering nothing.
 
-Every template is a function too, taking its variables in the order the template first mentions
-them:
+### When you don't have every variable
+
+Handlebars renders an undefined variable as nothing, and `builder()` is how you say that. Set what
+you have; anything you leave out renders as empty, a list with no items, or a false condition:
 
 ```rust
-templates::button(42, "Save").render()
+templates::button::builder().btn_id(42).render()   // btn_name renders as nothing
 ```
 
-It is shorter, and it is the whole of what nested types like `RowsItem::new(…)` offer, so you will
-meet it. But the order is the template's, not yours: reordering the markup reorders the arguments,
-and two variables of the same type swap without a compile error. Reach for the builder wherever a
-call site is worth protecting.
+So use: `Vars` when you have everything or `builder()` when you don't.
 
 ## Goals
 
@@ -160,8 +157,8 @@ Each template gets a module of its own, named after the file, holding the types 
 directory layout becomes the module layout:
 
 ```
-templates/page.hbs          templates::page::Builder           templates::page::RowsItem
-templates/admin/row.hbs     templates::admin::row::Builder     templates::admin::row(…)
+templates/page.hbs          templates::page::Vars              templates::page::RowsItem
+templates/admin/row.hbs     templates::admin::row::Vars        templates::admin::row::builder()
 ```
 
 So two templates called `row` in different directories are two different modules, rather than a

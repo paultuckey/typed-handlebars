@@ -14,7 +14,11 @@ fn double_braces_escape_and_triple_braces_do_not() {
         typed_handlebars::str!("test", r#"<p>{{ two }}|{{{ three }}}</p>"#);
     }
     assert_eq!(
-        template::test("a&b<c>", "a&b<c>").render(),
+        template::test::Vars {
+            two: "a&b<c>",
+            three: "a&b<c>"
+        }
+        .render(),
         "<p>a&amp;b&lt;c&gt;|a&b<c></p>"
     );
 }
@@ -27,13 +31,28 @@ fn escaping_covers_the_handlebars_character_set() {
         typed_handlebars::str!("test", r#"{{ value }}"#);
     }
     assert_eq!(
-        template::test(r#"& < > " ' ` ="#).render(),
+        template::test::Vars {
+            value: r#"& < > " ' ` ="#
+        }
+        .render(),
         "&amp; &lt; &gt; &quot; &#x27; &#x60; &#x3D;"
     );
     // Text with nothing to escape passes through untouched.
-    assert_eq!(template::test("plain text 123").render(), "plain text 123");
+    assert_eq!(
+        template::test::Vars {
+            value: "plain text 123"
+        }
+        .render(),
+        "plain text 123"
+    );
     // Multi-byte characters are not disturbed.
-    assert_eq!(template::test("héllo → <b>").render(), "héllo → &lt;b&gt;");
+    assert_eq!(
+        template::test::Vars {
+            value: "héllo → <b>"
+        }
+        .render(),
+        "héllo → &lt;b&gt;"
+    );
 }
 
 /// Escaping is about how a value is written, so it applies wherever a value is written.
@@ -43,7 +62,12 @@ fn escaping_applies_inside_blocks_and_records() {
         typed_handlebars::str!("test", r#"{{#each rows}}<li>{{name}}</li>{{/each}}"#);
     }
     assert_eq!(
-        list::test(vec![list::test::RowsItem::new("Tom & Jerry")]).render(),
+        list::test::Vars {
+            rows: vec![list::test::RowsItem {
+                name: "Tom & Jerry"
+            }]
+        }
+        .render(),
         "<li>Tom &amp; Jerry</li>"
     );
 
@@ -51,7 +75,10 @@ fn escaping_applies_inside_blocks_and_records() {
         typed_handlebars::str!("test", r#"{{person.name}}"#);
     }
     assert_eq!(
-        record::test(record::test::Person::new("<script>")).render(),
+        record::test::Vars {
+            person: record::test::Person { name: "<script>" }
+        }
+        .render(),
         "&lt;script&gt;"
     );
 }

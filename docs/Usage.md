@@ -1,22 +1,51 @@
 # Usage Notes
 
-## Composing and writing
+## The two ways in
 
-A template implements `Display`, so a nested one can be passed straight to its parent and written
-once into the same buffer — no `String` per level:
+`Vars` is every variable the template uses, written as an ordinary struct literal. It is exhaustive
+on purpose: the compiler names anything you misspell or forget, so a variable added to the `.hbs`
+breaks the call sites instead of quietly rendering as nothing.
 
 ```rust
-templates::page(templates::row("King")).render()   // page.hbs writes {{{ rows }}}
+templates::page::Vars { title: "Dub", rows: &rows }.render()
 ```
+
+`builder()` is for when you do not have every variable. Handlebars renders an undefined variable as
+nothing, and a struct literal has no way to leave a field out, so this is the form that expresses it:
+
+```rust
+templates::page::builder().title("Dub").render()   // rows renders as no items
+```
+
+Nested types work the same way: a `{{#each}}` item is a plain struct, with `builder()` hanging off it
+for the partial case.
+
+```rust
+templates::page::RowsItem { id: 1, name: "King" }
+templates::page::RowsItem::builder().name("King").build()
+```
+
+
+## Composing and writing
 
 `render_to` writes into any `fmt::Write` sink, so a response buffer needs no throwaway `String`:
 
 ```rust
 let mut body = String::from("<body>");
-templates::page(rows).render_to(&mut body)?;
+templates::page::Vars { title: "Dub", rows: &rows }.render_to(&mut body)?;
 ```
 
-`render()` remains the convenience form and returns a `String`.
+`render()` is the convenience form and returns a `String`.
+
+One template's output goes inside another through `{{{ }}}`, which is how handlebars.js composes
+too — render the inner one and pass the markup in as a variable:
+
+```rust
+templates::page::Vars { content: templates::row::Vars { name: "King" }.render() }.render()
+```
+
+Unlike `{{> partial}}`, which is resolved at compile time, this lets the content be chosen at run
+time — a layout wrapping whichever page the request asked for.
 
 
 ### Absent values
@@ -26,8 +55,12 @@ handlebars.js. Nothing in the template says so and nothing at the call site unwr
 matters because most database columns are nullable:
 
 ```rust
-templates::row(row.id, row.guessed_datetime).render()   // Option<String>, None renders as ""
+// Option<String>, None renders as ""
+templates::row::Vars { id: row.id, seen: row.guessed_datetime }.render()
 ```
+
+A bare `None` has no type to infer, so give it one — a typed binding, or `None::<&str>` — or leave
+the variable out through `builder()`, which is usually what you meant.
 
 This works by value or by reference, in a record, in `{{#each}}`, and through a builder setter.
 `{{#if}}` asks only whether the value is there, so `{{#if x}}{{ x }}{{/if}}` works on the very
@@ -41,28 +74,35 @@ more than one call site for the same template, it usually wants the mapping from
 place — which means writing the type down:
 
 ```rust
-fn todo_item(todo: &Todo) -> todo::Template<i64, bool, &String> {
-    todo::Template::new(todo.id, todo.done, &todo.title)
+fn todo_item(todo: &Todo) -> todo::Vars<i64, bool, &String> {
+    todo::Vars { id: todo.id, done: todo.done, title: &todo.title }
 }
 
-impl<'a> From<&'a Todo> for todo::Template<i64, bool, &'a String> { /* … */ }
+impl<'a> From<&'a Todo> for todo::Vars<i64, bool, &'a String> { /* … */ }
 ```
 
-One parameter per variable, in the order the template first mentions them. Rename a variable in the
-`.hbs` and you get one compile error, in the function that owns the mapping, rather than one per call
-site. The value can also be stored — in a struct field, in a `Vec` — which is what makes this
-different from erasing it behind `impl Display`.
-
-A written value carries a hidden marker parameter saying how it renders, but markers are declared
-last and default to `ViaDisplay`, so they can be left off. `Option` is the exception: its marker is
-`ViaOption` (or `ViaOptionRef` by reference), and because Rust only elides defaults from the right,
-every marker before it has to be spelled too:
+One parameter per field, in the order the template first mentions them, and nothing else — a value
+that is written goes through a `Render` marker saying how, but the markers live on `render` as
+method-level generics, so they never appear in a signature. `Option` included:
 
 ```rust
-fn pair(b: Option<u32>) -> maybe::Template<&'static str, Option<u32>, ViaDisplay, ViaOption>
+fn pair(b: Option<u32>) -> maybe::Vars<&'static str, Option<u32>>
 ```
 
-Templates with no `Option` leaves elide all of them.
+Rename a variable in the `.hbs` and you get one compile error, in the function that owns the
+mapping, rather than one per call site. The value can also be stored — in a struct field, in a `Vec`
+— and rendered more than once, which is what makes it different from a rendered `String`.
+
+A list is where the parameters stop threading up. Its item type is named only in an `AsRef` bound,
+never in a field, so the container parameter stays opaque and the item's own parameters live inside
+it:
+
+```rust
+deep::RowsItem<&str, Vec<deep::RowsItemCellsItem<i32>>>   // two, not three
+```
+
+That is also why no generated type needs a `PhantomData`, and so why all of them can be written as
+literals.
 
 
 ## Reaching the top level
@@ -88,7 +128,7 @@ context, and there is nothing useful to write instead.
 `{{ rows.length }}` counts the list, and the same variable can still be iterated:
 
 ```rust
-templates::page(rows).render()   // page.hbs writes {{ rows.length }} and {{#each rows}}
+templates::page::Vars { rows }.render()   // page.hbs writes {{ rows.length }} and {{#each rows}}
 ```
 
 Anything slice-backed counts — `Vec`, an array, a slice, or a reference to one. A `String` does
@@ -107,12 +147,23 @@ renamed rather than rejected: a keyword gets a trailing underscore and a leading
 leading one.
 
 ```
-{{ type }}        .type_(…)
-mod.hbs           templates::mod_(…)
-2col.hbs          templates::_2col(…)
+{{ type }}        Vars { type_: … }
+mod.hbs           templates::mod_::Vars
+2col.hbs          templates::_2col::Vars
 ```
 
-Your IDE offers the renamed form, so in practice you meet it through autocomplete.
+The same escape settles a collision between two generated names. `{{ builder.name }}` is ordinary
+Handlebars, but `builder` camel-cases onto the builder this crate generates, so one of them has to
+give way:
+
+```
+{{ builder.x }}   the record becomes Builder_, since Builder is the module's own
+{{ vars.x }}      likewise Vars_
+```
+
+Names are handed out in the order the template mentions them, and the module's own API — `Vars`,
+`Builder`, `builder()` — is reserved ahead of all of them, so those always mean what a caller
+expects. Your IDE offers the renamed form, so in practice you meet it through autocomplete.
 
 
 ## When a template is wrong

@@ -65,7 +65,14 @@ pub mod templates {
 #[test]
 fn generated_code_needs_nothing_from_the_call_site() {
     assert_eq!(
-        templates::page("Dub", vec![templates::page::RowsItem::new(1, "King")]).render(),
+        templates::page::Vars {
+            title: "Dub",
+            rows: vec![templates::page::RowsItem {
+                id: 1,
+                name: "King"
+            }],
+        }
+        .render(),
         "<h1>Dub</h1><ul><li id=\"r1\">King</li></ul>"
     );
 }

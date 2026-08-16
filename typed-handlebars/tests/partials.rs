@@ -11,13 +11,19 @@ mod templates {
 fn a_partial_renders_against_the_context_it_was_included_from() {
     // `row.hbs` writes {{ name }}; included inside {{#each rows}}, that means the current row.
     assert_eq!(
-        templates::page(
-            "Dub",
-            vec![
-                templates::page::RowsItem::new(1, "King"),
-                templates::page::RowsItem::new(2, "Tubby"),
+        templates::page::Vars {
+            title: "Dub",
+            rows: vec![
+                templates::page::RowsItem {
+                    id: 1,
+                    name: "King"
+                },
+                templates::page::RowsItem {
+                    id: 2,
+                    name: "Tubby"
+                },
             ],
-        )
+        }
         .render(),
         "<h1>Dub</h1><ul><li id=\"r1\">King</li><li id=\"r2\">Tubby</li></ul>"
     );
@@ -29,10 +35,10 @@ fn a_partial_renders_against_the_context_it_was_included_from() {
 #[test]
 fn a_partial_contributes_to_the_builder_of_its_includer() {
     assert_eq!(
-        templates::page::Builder::new()
+        templates::page::builder()
             .title("Dub")
             .rows(vec![
-                templates::page::RowsItemBuilder::new().name("King").build()
+                templates::page::RowsItem::builder().name("King").build()
             ])
             .render(),
         "<h1>Dub</h1><ul><li id=\"r\">King</li></ul>",
@@ -44,11 +50,18 @@ fn a_partial_contributes_to_the_builder_of_its_includer() {
 #[test]
 fn a_partial_still_has_its_own_type() {
     assert_eq!(
-        templates::row(9, "Standalone").render(),
+        templates::row::Vars {
+            id: 9,
+            name: "Standalone"
+        }
+        .render(),
         "<li id=\"r9\">Standalone</li>"
     );
     assert_eq!(
-        templates::header("Just a heading").render(),
+        templates::header::Vars {
+            title: "Just a heading"
+        }
+        .render(),
         "<h1>Just a heading</h1>"
     );
 }
@@ -57,7 +70,14 @@ fn a_partial_still_has_its_own_type() {
 #[test]
 fn partials_nest() {
     assert_eq!(
-        templates::wrapper("Dub", vec![templates::wrapper::RowsItem::new(1, "King")]).render(),
+        templates::wrapper::Vars {
+            title: "Dub",
+            rows: vec![templates::wrapper::RowsItem {
+                id: 1,
+                name: "King"
+            }],
+        }
+        .render(),
         "<div><h1>Dub</h1><ul><li id=\"r1\">King</li></ul></div>"
     );
 }
@@ -68,11 +88,11 @@ fn partials_nest() {
 #[test]
 fn subdirectories_become_modules() {
     assert_eq!(
-        templates::admin::row("King").render(),
+        templates::admin::row::Vars { name: "King" }.render(),
         "<tr class=\"admin\"><td>King</td></tr>"
     );
     assert_eq!(
-        templates::public::row("King").render(),
+        templates::public::row::Vars { name: "King" }.render(),
         "<tr><td>King</td></tr>"
     );
 }
@@ -82,8 +102,14 @@ fn subdirectories_become_modules() {
 /// keyword`.
 #[test]
 fn template_file_names_may_be_rust_keywords() {
-    assert_eq!(templates::awkward::mod_("x").render(), "<p>x</p>");
-    assert_eq!(templates::awkward::_2col("x").render(), "<p>x</p>");
+    assert_eq!(
+        templates::awkward::mod_::Vars { x: "x" }.render(),
+        "<p>x</p>"
+    );
+    assert_eq!(
+        templates::awkward::_2col::Vars { x: "x" }.render(),
+        "<p>x</p>"
+    );
 }
 
 /// Values from a partial are escaped like any other, since the partial is generated code rather
@@ -91,7 +117,11 @@ fn template_file_names_may_be_rust_keywords() {
 #[test]
 fn values_written_by_a_partial_are_escaped() {
     assert_eq!(
-        templates::row(1, "Tom & Jerry").render(),
+        templates::row::Vars {
+            id: 1,
+            name: "Tom & Jerry"
+        }
+        .render(),
         "<li id=\"r1\">Tom &amp; Jerry</li>"
     );
 }

@@ -13,8 +13,20 @@ fn a_list_reports_how_many_items_it_holds() {
     mod template {
         typed_handlebars::str!("test", r#"<p>{{ rows.length }}</p>"#);
     }
-    assert_eq!(template::test(vec!["a", "b", "c"]).render(), "<p>3</p>");
-    assert_eq!(template::test(Vec::<&str>::new()).render(), "<p>0</p>");
+    assert_eq!(
+        template::test::Vars {
+            rows: vec!["a", "b", "c"]
+        }
+        .render(),
+        "<p>3</p>"
+    );
+    assert_eq!(
+        template::test::Vars {
+            rows: Vec::<&str>::new()
+        }
+        .render(),
+        "<p>0</p>"
+    );
 }
 
 /// The case that made this worth having: counted and iterated in the same template. This used to be
@@ -30,11 +42,11 @@ fn a_list_can_be_counted_and_iterated() {
         );
     }
     let rows = vec![
-        template::test::RowsItem::new("King"),
-        template::test::RowsItem::new("Tubby"),
+        template::test::RowsItem { name: "King" },
+        template::test::RowsItem { name: "Tubby" },
     ];
     assert_eq!(
-        template::test(rows).render(),
+        template::test::Vars { rows }.render(),
         "<p>2 rows</p><ul><li>King</li><li>Tubby</li></ul>"
     );
 }
@@ -46,8 +58,14 @@ fn a_count_can_be_tested() {
     mod template {
         typed_handlebars::str!("test", r#"{{#if rows.length}}some{{else}}none{{/if}}"#);
     }
-    assert_eq!(template::test(vec![1]).render(), "some");
-    assert_eq!(template::test(Vec::<u8>::new()).render(), "none");
+    assert_eq!(template::test::Vars { rows: vec![1] }.render(), "some");
+    assert_eq!(
+        template::test::Vars {
+            rows: Vec::<u8>::new()
+        }
+        .render(),
+        "none"
+    );
 }
 
 /// Absent is not empty. handlebars.js writes nothing for `undefined.length` and `0` for `[].length`,
@@ -63,24 +81,19 @@ fn an_unset_list_counts_as_nothing_rather_than_zero() {
             r#"[{{ rows.length }}{{#each rows}}{{ name }}{{/each}}]"#
         );
     }
-    assert_eq!(counted::test::Builder::new().render(), "[]");
+    assert_eq!(counted::test::builder().render(), "[]");
+    assert_eq!(counted::test::builder().rows(vec![0; 2]).render(), "[2]");
     assert_eq!(
-        counted::test::Builder::new().rows(vec![0; 2]).render(),
-        "[2]"
-    );
-    assert_eq!(
-        counted::test::Builder::new()
-            .rows(Vec::<u8>::new())
-            .render(),
+        counted::test::builder().rows(Vec::<u8>::new()).render(),
         "[0]"
     );
 
     // The same holds when the list is iterated as well, where the unset value has to name its
     // item type.
-    assert_eq!(iterated::test::Builder::new().render(), "[]");
+    assert_eq!(iterated::test::builder().render(), "[]");
     assert_eq!(
-        iterated::test::Builder::new()
-            .rows(vec![iterated::test::RowsItem::new("King")])
+        iterated::test::builder()
+            .rows(vec![iterated::test::RowsItem { name: "King" }])
             .render(),
         "[1King]"
     );
@@ -95,7 +108,7 @@ fn an_unset_list_is_still_empty_everywhere_else() {
             r#"[{{#if rows}}y{{/if}}{{#each rows}}{{this}}{{else}}none{{/each}}]"#
         );
     }
-    assert_eq!(template::test::Builder::new().render(), "[none]");
+    assert_eq!(template::test::builder().render(), "[none]");
 }
 
 #[test]
@@ -104,9 +117,15 @@ fn a_count_works_on_whatever_holds_the_list() {
         typed_handlebars::str!("test", r#"{{ rows.length }}"#);
     }
     let owned = vec![1, 2];
-    assert_eq!(template::test(&owned).render(), "2");
-    assert_eq!(template::test(["a", "b", "c"]).render(), "3");
-    assert_eq!(template::test(&owned[..1]).render(), "1");
+    assert_eq!(template::test::Vars { rows: &owned }.render(), "2");
+    assert_eq!(
+        template::test::Vars {
+            rows: ["a", "b", "c"]
+        }
+        .render(),
+        "3"
+    );
+    assert_eq!(template::test::Vars { rows: &owned[..1] }.render(), "1");
 }
 
 #[test]
@@ -115,7 +134,12 @@ fn a_list_inside_a_record_can_be_counted() {
         typed_handlebars::str!("test", r#"{{ page.rows.length }}"#);
     }
     assert_eq!(
-        template::test(template::test::Page::new(vec!["a", "b"])).render(),
+        template::test::Vars {
+            page: template::test::Page {
+                rows: vec!["a", "b"]
+            }
+        }
+        .render(),
         "2"
     );
 }
@@ -126,7 +150,13 @@ fn a_count_resolves_through_scopes() {
     mod parent {
         typed_handlebars::str!("test", r#"{{#each rows}}[{{ ../rows.length }}]{{/each}}"#);
     }
-    assert_eq!(parent::test(vec!["a", "b"]).render(), "[2][2]");
+    assert_eq!(
+        parent::test::Vars {
+            rows: vec!["a", "b"]
+        }
+        .render(),
+        "[2][2]"
+    );
 }
 
 /// Counting the loop item itself, by alias or as `{{this}}` — which says the items are lists, and
@@ -143,8 +173,14 @@ fn an_each_item_can_be_counted() {
         typed_handlebars::str!("test", r#"{{#each grids}}[{{ this.length }}]{{/each}}"#);
     }
     let grids = vec![vec!["a", "b"], vec![]];
-    assert_eq!(aliased::test(grids.clone()).render(), "[2][0]");
-    assert_eq!(bare::test(grids).render(), "[2][0]");
+    assert_eq!(
+        aliased::test::Vars {
+            grids: grids.clone()
+        }
+        .render(),
+        "[2][0]"
+    );
+    assert_eq!(bare::test::Vars { grids }.render(), "[2][0]");
 }
 
 /// `{{ 3 }}` is a literal in Handlebars, and `{{ length }}` on its own is an ordinary variable
@@ -154,5 +190,5 @@ fn a_bare_length_is_an_ordinary_variable() {
     mod template {
         typed_handlebars::str!("test", r#"{{ length }}"#);
     }
-    assert_eq!(template::test("spool").render(), "spool");
+    assert_eq!(template::test::Vars { length: "spool" }.render(), "spool");
 }

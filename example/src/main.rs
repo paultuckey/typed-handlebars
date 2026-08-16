@@ -11,38 +11,51 @@ mod templates {
 }
 
 fn main() {
-    let html = templates::button(42, "My Todo").render();
+    // Every variable the template uses, named. Miss one and it is a compile error saying which.
+    let html = templates::button::Vars {
+        btn_id: 42,
+        btn_name: "My Todo",
+    }
+    .render();
     println!("{}", html);
 
-    let html2 = templates::button2(43, "Single File Todo").render();
+    let html2 = templates::button2::Vars {
+        btn_id: 43,
+        btn_name: "Single File Todo",
+    }
+    .render();
     println!("{}", html2);
 
-    let html3 = templates::hello_first_last("King", "Tubby").render();
+    let html3 = templates::hello_first_last::Vars {
+        firstname: "King",
+        lastname: "Tubby",
+    }
+    .render();
     println!("{}", html3);
 
     // todo_list.hbs uses {{#each}}, so the macro generates the item types from the template —
     // nothing here declares a type or implements a trait.
-    let html4 = templates::todo_list(
-        "Today",
-        vec![
-            templates::todo_list::TodosItem::new(
-                1,
-                "Buy milk",
-                templates::todo_list::TodosItemOwner::new("King"),
-            ),
-            templates::todo_list::TodosItem::new(
-                2,
-                "Write docs",
-                templates::todo_list::TodosItemOwner::new("Tubby"),
-            ),
+    let html4 = templates::todo_list::Vars {
+        list_name: "Today",
+        todos: vec![
+            templates::todo_list::TodosItem {
+                todo_id: 1,
+                title: "Buy milk",
+                owner: templates::todo_list::TodosItemOwner { name: "King" },
+            },
+            templates::todo_list::TodosItem {
+                todo_id: 2,
+                title: "Write docs",
+                owner: templates::todo_list::TodosItemOwner { name: "Tubby" },
+            },
         ],
-    )
+    }
     .render();
     println!("{}", html4);
 
-    // The builder is optional. It names each variable, and anything left unset renders empty —
+    // The builder is for when you do not have every variable. Anything left unset renders empty —
     // here there are no todos, so the loop produces nothing.
-    let html5 = templates::todo_list::Builder::new()
+    let html5 = templates::todo_list::builder()
         .list_name("Nothing to do")
         .render();
     println!("{}", html5);

@@ -35,23 +35,6 @@ use std::path::Path;
 use syn::{LitStr, Token, parse::Parse, parse::ParseStream, parse_macro_input};
 use walkdir::WalkDir;
 
-fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if c.is_uppercase() {
-            if i > 0 {
-                result.push('_');
-            }
-            for lc in c.to_lowercase() {
-                result.push(lc);
-            }
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
 /// The path generated code should use to reach the runtime crate.
 ///
 /// A consumer may rename the dependency (`hb = { package = "typed-handlebars" }`), in which case
@@ -166,7 +149,7 @@ fn generate_code_for_content(
     // Everything a template generates lives in a module of its own, so a template with a `rows`
     // list cannot collide with a template called `rows_item`, and the names stay readable.
     let module_name = format_ident!("{}", template_name);
-    let struct_name = format_ident!("Template");
+    let struct_name = format_ident!("Vars");
 
     let mut block_map = HashMap::new();
     add_builtins(&mut block_map);
@@ -198,46 +181,41 @@ fn generate_code_for_content(
         )
     })?;
 
-    let method_name = format_ident!("{}", to_snake_case(&template_name));
-
     let codegen::Types {
         nested,
         builder,
         params,
-        decl_params,
+        method_params,
         predicates,
         declarations,
-        initialisers,
-        names,
-        types: field_types,
     } = types;
 
-    // A list's bound has to be on the declaration as well as the impl, because the field type is
-    // the container rather than the item.
+    // Every bound in the subtree lives on the render methods rather than on the type, so that the
+    // type stays plain enough to be written as a struct literal. See `codegen`.
     let where_clause = codegen::where_clause(&predicates);
 
     // Generated items carry documentation so that a consumer denying `missing_docs` needs no
     // `#[allow]`, and so IDE autocomplete says what each setter is for.
     let module_doc = format!("Types generated from the `{}` template.", template_name);
-    let struct_doc = format!("The `{}` template.", template_name);
-    let new_doc =
-        "Creates it from every variable the template uses, in the order it first mentions them.";
-    let fn_doc = format!(
-        "Builds the `{}` template. See [`{}::Builder`] to name the variables instead.",
-        template_name, template_name
+    let struct_doc = format!(
+        "Every variable the `{}` template uses. Write it as a struct literal, or reach for \
+         [`builder()`] when you do not have them all.",
+        template_name
     );
 
-    // The function is defined inside the module, where the generated types are in scope, then
-    // re-exported beside it. `templates::page(…)` and `templates::page::RowsItem` both work,
-    // because a module and a function do not share a namespace.
-    let function_def = quote! {
-        #[doc = #fn_doc]
-        pub fn #method_name<#(#params),*>(
-            #(#names: #field_types),*
-        ) -> #struct_name<#(#params),*>
-        #where_clause
-        {
-            #struct_name::new(#(#names),*)
+    // A template with no variables at all has no fields to name, and a unit struct is a shorter
+    // thing to write than an empty pair of braces.
+    let struct_def = if declarations.is_empty() {
+        quote! {
+            #[doc = #struct_doc]
+            pub struct #struct_name;
+        }
+    } else {
+        quote! {
+            #[doc = #struct_doc]
+            pub struct #struct_name<#(#params),*> {
+                #(#declarations),*
+            }
         }
     };
 
@@ -248,7 +226,7 @@ fn generate_code_for_content(
         #(const _: &[u8] = ::core::include_bytes!(#includes);)*
     };
 
-    let struct_def = quote! {
+    let module = quote! {
         #[doc = #module_doc]
         pub mod #module_name {
         #include_bytes_stmt
@@ -257,27 +235,19 @@ fn generate_code_for_content(
 
         #builder
 
-        #[doc = #struct_doc]
-        pub struct #struct_name<#(#decl_params),*> #where_clause {
-            #(#declarations),*
-        }
+        #struct_def
 
-        impl<#(#params),*> #struct_name<#(#params),*> #where_clause {
-            #[doc = #new_doc]
-            pub fn new(#(#names: #field_types),*) -> Self {
-                Self {
-                    #(#initialisers),*
-                }
-            }
-
+        impl<#(#params),*> #struct_name<#(#params),*> {
             /// Writes the template into any sink — a `String`, a response buffer, anything
             /// implementing `fmt::Write`.
             ///
             /// This is where the rendering actually happens; `render` is a convenience over it.
-            pub fn render_to(
+            pub fn render_to<#(#method_params),*>(
                 &self,
                 f: &mut impl ::core::fmt::Write,
-            ) -> ::core::fmt::Result {
+            ) -> ::core::fmt::Result
+            #where_clause
+            {
                 // Written values go through `Render`, which generated code reaches by method
                 // syntax so that method lookup can step through the references a loop body holds.
                 // Anonymous, so it can never collide with a name from the template.
@@ -290,30 +260,19 @@ fn generate_code_for_content(
             }
 
             /// Renders the template to a new `String`.
-            pub fn render(&self) -> ::std::string::String {
+            pub fn render<#(#method_params),*>(&self) -> ::std::string::String
+            #where_clause
+            {
                 let mut out = ::std::string::String::new();
                 // Writing into a `String` cannot fail, so there is no error to propagate.
                 let _ = self.render_to(&mut out);
                 out
             }
         }
-
-        // Rendering into a formatter means a nested template can be passed straight to a parent as
-        // a value and written once into its buffer, rather than each level allocating a `String`.
-        impl<#(#params),*> ::core::fmt::Display for #struct_name<#(#params),*> #where_clause {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                self.render_to(f)
-            }
         }
-
-        #function_def
-        }
-
-        #[doc(inline)]
-        pub use #module_name::#method_name;
     };
 
-    Ok(struct_def)
+    Ok(module)
 }
 
 fn generate_code_for_file(

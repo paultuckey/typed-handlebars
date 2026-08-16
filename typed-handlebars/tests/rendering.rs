@@ -1,5 +1,5 @@
-//! How a template turns into output: the constructor, `render`, `render_to`, and
-//! `Display` for nesting one template inside another.
+//! How a template turns into output: writing `Vars`, `render`, `render_to`, and nesting one
+//! template's output inside another through `{{{ }}}`.
 //!
 //! An integration test, so the macro is reached the way a consumer reaches it — through
 //! `typed_handlebars::str!` rather than `crate::str!`. That also covers the path resolution these
@@ -12,7 +12,11 @@ fn basic_usage() {
         typed_handlebars::str!("test", r#"<p>{{firstname}} {{lastname}}</p>"#);
     }
     assert_eq!(
-        template::test("King", "Tubby").render(),
+        template::test::Vars {
+            firstname: "King",
+            lastname: "Tubby"
+        }
+        .render(),
         "<p>King Tubby</p>"
     );
 }
@@ -27,29 +31,71 @@ fn path_expressions() {
         );
     }
     assert_eq!(
-        template::test(template::test::Person::new("King", "Tubby")).render(),
+        template::test::Vars {
+            person: template::test::Person {
+                firstname: "King",
+                lastname: "Tubby"
+            }
+        }
+        .render(),
         "King Tubby"
     );
 }
 
-/// A template is `Display`, so a nested one goes straight into the parent's buffer instead of
-/// being rendered to a `String` first and copied in.
+/// One template's output goes into another through `{{{ }}}`, exactly as handlebars.js renders a
+/// fragment and passes the HTML in as a variable. Anything that displays will do, so the inner
+/// template is rendered first and its `String` passed along.
 #[test]
-fn a_template_can_be_nested_without_an_intermediate_string() {
+fn a_rendered_template_can_be_nested_in_another() {
     mod row {
         typed_handlebars::str!("test", r#"<li>{{name}}</li>"#);
     }
     mod page {
         typed_handlebars::str!("test", r#"<ul>{{{ rows }}}</ul>"#);
     }
-    // No `.render()` on the inner template — it is passed as a value.
     assert_eq!(
-        page::test(row::test("King")).render(),
+        page::test::Vars {
+            rows: row::test::Vars { name: "King" }.render()
+        }
+        .render(),
         "<ul><li>King</li></ul>"
     );
-    // …and `Display` means the usual conversions work too.
-    assert_eq!(row::test("King").to_string(), "<li>King</li>");
-    assert_eq!(format!("{}", row::test("Tubby")), "<li>Tubby</li>");
+
+    // The point of `{{{ }}}` here: the inner template's markup is not escaped again on the way in.
+    mod escapes {
+        typed_handlebars::str!("test", r#"<li>{{name}}</li>"#);
+    }
+    assert_eq!(
+        page::test::Vars {
+            rows: escapes::test::Vars { name: "A & B" }.render()
+        }
+        .render(),
+        "<ul><li>A &amp; B</li></ul>",
+        "the inner template escaped its own value, and the outer left that markup alone"
+    );
+}
+
+/// Which content goes in can be decided at run time — something a `{{> partial}}` cannot do,
+/// because partial names are resolved at compile time.
+#[test]
+fn nested_content_can_be_chosen_at_run_time() {
+    mod page {
+        typed_handlebars::str!("test", r#"<main>{{{ content }}}</main>"#);
+    }
+    mod home {
+        typed_handlebars::str!("test", r#"<h1>{{title}}</h1>"#);
+    }
+    for (logged_in, expected) in [
+        (true, "<main><h1>Dub</h1></main>"),
+        (false, "<main>please sign in</main>"),
+    ] {
+        let content = if logged_in {
+            home::test::Vars { title: "Dub" }.render()
+        } else {
+            String::from("please sign in")
+        };
+        assert_eq!(page::test::Vars { content }.render(), expected);
+    }
 }
 
 /// `render_to` writes into a caller-supplied sink, so a response buffer never needs a
@@ -63,7 +109,9 @@ fn render_to_writes_into_any_sink() {
     }
 
     let mut buffer = String::from("<body>");
-    template::test("King").render_to(&mut buffer).unwrap();
+    template::test::Vars { name: "King" }
+        .render_to(&mut buffer)
+        .unwrap();
     buffer.push_str("</body>");
     assert_eq!(buffer, "<body><p>King</p></body>");
 
@@ -76,21 +124,10 @@ fn render_to_writes_into_any_sink() {
         }
     }
     let mut counter = Counter(0);
-    template::test("King").render_to(&mut counter).unwrap();
+    template::test::Vars { name: "King" }
+        .render_to(&mut counter)
+        .unwrap();
     assert_eq!(counter.0, "<p>King</p>".len());
-}
-
-/// Pre-rendered markup goes in `{{{ }}}`, which is how Handlebars does it too.
-#[test]
-fn a_nested_template_can_be_passed_through_triple_braces() {
-    mod row {
-        typed_handlebars::str!("test", r#"<li>{{name}}</li>"#);
-    }
-    mod page {
-        typed_handlebars::str!("test", r#"<ul>{{{ rows }}}</ul>"#);
-    }
-    let rows = row::test("King").render();
-    assert_eq!(page::test(rows).render(), "<ul><li>King</li></ul>");
 }
 
 #[test]
@@ -98,5 +135,8 @@ fn it_works() {
     mod template {
         typed_handlebars::str!("test", "Hello {{{name}}}!");
     }
-    assert_eq!(template::test("King").render(), "Hello King!");
+    assert_eq!(
+        template::test::Vars { name: "King" }.render(),
+        "Hello King!"
+    );
 }

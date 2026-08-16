@@ -18,10 +18,18 @@ fn each_generates_the_item_type() {
         );
     }
     assert_eq!(
-        template::test(vec![
-            template::test::RowsItem::new("King", "king@example.com"),
-            template::test::RowsItem::new("Tubby", "tubby@example.com"),
-        ])
+        template::test::Vars {
+            rows: vec![
+                template::test::RowsItem {
+                    name: "King",
+                    email: "king@example.com"
+                },
+                template::test::RowsItem {
+                    name: "Tubby",
+                    email: "tubby@example.com"
+                },
+            ]
+        }
         .render(),
         //language=html
         "<ul><li>King king@example.com</li><li>Tubby tubby@example.com</li></ul>"
@@ -35,8 +43,17 @@ fn each_over_plain_values_needs_no_item_type() {
     mod template {
         typed_handlebars::str!("test", r#"{{#each tags}}[{{this}}]{{/each}}"#);
     }
-    assert_eq!(template::test(vec!["a", "b"]).render(), "[a][b]");
-    assert_eq!(template::test([1, 2, 3]).render(), "[1][2][3]");
+    assert_eq!(
+        template::test::Vars {
+            tags: vec!["a", "b"]
+        }
+        .render(),
+        "[a][b]"
+    );
+    assert_eq!(
+        template::test::Vars { tags: [1, 2, 3] }.render(),
+        "[1][2][3]"
+    );
 }
 
 #[test]
@@ -49,14 +66,18 @@ fn nested_each_generates_nested_item_types() {
         );
     }
     let rows = vec![
-        template::test::RowsItem::new(vec![
-            template::test::RowsItemCellsItem::new(1),
-            template::test::RowsItemCellsItem::new(2),
-        ]),
-        template::test::RowsItem::new(vec![template::test::RowsItemCellsItem::new(3)]),
+        template::test::RowsItem {
+            cells: vec![
+                template::test::RowsItemCellsItem { value: 1 },
+                template::test::RowsItemCellsItem { value: 2 },
+            ],
+        },
+        template::test::RowsItem {
+            cells: vec![template::test::RowsItemCellsItem { value: 3 }],
+        },
     ];
     assert_eq!(
-        template::test(rows).render(),
+        template::test::Vars { rows }.render(),
         //language=html
         "<tr><td>1</td><td>2</td></tr><tr><td>3</td></tr>"
     );
@@ -69,7 +90,13 @@ fn dotted_paths_generate_a_record_type() {
         typed_handlebars::str!("test", r#"{{person.firstname}} {{person.lastname}}"#);
     }
     assert_eq!(
-        template::test(template::test::Person::new("King", "Tubby")).render(),
+        template::test::Vars {
+            person: template::test::Person {
+                firstname: "King",
+                lastname: "Tubby"
+            }
+        }
+        .render(),
         "King Tubby"
     );
 }
@@ -86,15 +113,20 @@ fn variable_names_may_be_rust_keywords() {
         );
     }
     assert_eq!(
-        template::test("a", "b", "c", "d", "e", "f").render(),
+        template::test::Vars {
+            type_: "a",
+            match_: "b",
+            fn_: "c",
+            self_: "d",
+            crate_: "e",
+            loop_: "f"
+        }
+        .render(),
         "[a][b][c][d][e][f]"
     );
     // The builder renames them the same way, so autocomplete still finds them.
     assert_eq!(
-        template::test::Builder::new()
-            .type_("a")
-            .self_("d")
-            .render(),
+        template::test::builder().type_("a").self_("d").render(),
         "[a][][][d][][]"
     );
 }
@@ -107,7 +139,11 @@ fn variable_names_may_start_with_a_digit() {
         typed_handlebars::str!("test", r#"[{{ 2nd }}][{{ 42 }}]"#);
     }
     assert_eq!(
-        template::test("silver", "answer").render(),
+        template::test::Vars {
+            _2nd: "silver",
+            _42: "answer"
+        }
+        .render(),
         "[silver][answer]"
     );
 }
@@ -125,7 +161,10 @@ fn testing_the_item_itself_bounds_it() {
             "{{#each xs}}{{#if this}}[{{this}}]{{/if}}{{/each}}"
         );
     }
-    assert_eq!(printed_too::test(vec![1, 0, 2]).render(), "[1][2]");
+    assert_eq!(
+        printed_too::test::Vars { xs: vec![1, 0, 2] }.render(),
+        "[1][2]"
+    );
 
     mod negated {
         typed_handlebars::str!(
@@ -134,7 +173,7 @@ fn testing_the_item_itself_bounds_it() {
             "{{#each xs}}{{#unless this}}n{{/unless}}{{/each}}"
         );
     }
-    assert_eq!(negated::test(vec![1, 0]).render(), "n");
+    assert_eq!(negated::test::Vars { xs: vec![1, 0] }.render(), "n");
 
     // An alias reaches the same scope, so it needs the same bound — a fix keyed on the literal
     // `this` would miss this half.
@@ -145,7 +184,10 @@ fn testing_the_item_itself_bounds_it() {
             "{{#each xs as |x|}}{{#if x}}[{{x}}]{{/if}}{{/each}}"
         );
     }
-    assert_eq!(through_an_alias::test(vec!["a", ""]).render(), "[a]");
+    assert_eq!(
+        through_an_alias::test::Vars { xs: vec!["a", ""] }.render(),
+        "[a]"
+    );
 
     // Nested loops each bound their own item.
     mod nested {
@@ -156,10 +198,12 @@ fn testing_the_item_itself_bounds_it() {
         );
     }
     assert_eq!(
-        nested::test(vec![
-            nested::test::RowsItem::new(vec![1, 0]),
-            nested::test::RowsItem::new(vec![2]),
-        ])
+        nested::test::Vars {
+            rows: vec![
+                nested::test::RowsItem { cells: vec![1, 0] },
+                nested::test::RowsItem { cells: vec![2] },
+            ]
+        }
         .render(),
         "[1];[2];"
     );
@@ -190,7 +234,87 @@ fn an_item_that_is_only_tested_needs_no_display() {
         );
     }
     assert_eq!(
-        template::test(vec![OnlyTruthy(true), OnlyTruthy(false)]).render(),
+        template::test::Vars {
+            xs: vec![OnlyTruthy(true), OnlyTruthy(false)]
+        }
+        .render(),
         "y"
+    );
+}
+
+/// A variable is named by whoever writes the `.hbs`, so `{{ builder.name }}` is ordinary
+/// Handlebars — and it camel-cases straight onto a type the module already generates. It used to be
+/// a wall of `E0428: the name Builder is defined multiple times` against a template that is not
+/// wrong about anything, which is exactly the Rust error a template author cannot read.
+///
+/// Names are handed out in template order, and whatever finds its name taken takes a trailing
+/// underscore instead — the same escape a Rust keyword gets. The module's own API is reserved
+/// ahead of everything, so `Vars` and `Builder` always mean what a caller expects.
+#[test]
+fn a_variable_may_be_called_vars_or_builder() {
+    mod clashes_with_the_type {
+        typed_handlebars::str!("test", r#"[{{ vars.x }}]"#);
+    }
+    assert_eq!(
+        clashes_with_the_type::test::Vars {
+            vars: clashes_with_the_type::test::Vars_ { x: 1 }
+        }
+        .render(),
+        "[1]"
+    );
+
+    mod clashes_with_the_builder {
+        typed_handlebars::str!("test", r#"[{{ builder.x }}]"#);
+    }
+    assert_eq!(
+        clashes_with_the_builder::test::Vars {
+            builder: clashes_with_the_builder::test::Builder_ { x: 2 }
+        }
+        .render(),
+        "[2]"
+    );
+
+    // An escaped type is a type like any other, builder included.
+    assert_eq!(
+        clashes_with_the_type::test::builder()
+            .vars(clashes_with_the_type::test::Vars_::builder().x(3).build())
+            .render(),
+        "[3]"
+    );
+}
+
+/// Two variables can also collide with each other, once one of them camel-cases onto a name the
+/// other one's type brings with it. First mentioned keeps the name.
+#[test]
+fn generated_names_give_way_in_template_order() {
+    // `rows_item` is written before `{{#each rows}}`, so it is the loop's item type that steps
+    // aside rather than the record.
+    mod item {
+        typed_handlebars::str!(
+            "test",
+            r#"[{{ rows_item.x }}|{{#each rows}}{{y}}{{/each}}]"#
+        );
+    }
+    assert_eq!(
+        item::test::Vars {
+            rows_item: item::test::RowsItem { x: 1 },
+            rows: vec![item::test::RowsItem_ { y: 2 }],
+        }
+        .render(),
+        "[1|2]"
+    );
+
+    // `person_builder` takes `PersonBuilder`, so `person`'s own builder has nowhere to go — and it
+    // is the record that moves, since a type and its builder have to stay together.
+    mod builder {
+        typed_handlebars::str!("test", r#"[{{ person_builder.x }}|{{ person.y }}]"#);
+    }
+    assert_eq!(
+        builder::test::Vars {
+            person_builder: builder::test::PersonBuilder { x: 3 },
+            person: builder::test::Person_ { y: 4 },
+        }
+        .render(),
+        "[3|4]"
     );
 }
