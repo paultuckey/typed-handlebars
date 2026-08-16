@@ -21,11 +21,11 @@ fn a_list_over_several_lines_renders_as_written() {
         );
     }
     let rows = vec![
-        template::test::RowsItem::new(1),
-        template::test::RowsItem::new(2),
+        template::test::RowsItem { n: 1 },
+        template::test::RowsItem { n: 2 },
     ];
     assert_eq!(
-        template::test(rows).render(),
+        template::test::Vars { rows }.render(),
         "<ul>\n  <li>1</li>\n  <li>2</li>\n</ul>"
     );
 }
@@ -36,17 +36,17 @@ fn a_standalone_tag_takes_its_indentation_and_its_newline() {
     mod plain {
         typed_handlebars::str!("test", "a\n{{#if x}}\nB\n{{/if}}\nc");
     }
-    assert_eq!(plain::test(true).render(), "a\nB\nc");
+    assert_eq!(plain::test::Vars { x: true }.render(), "a\nB\nc");
 
     mod indented {
         typed_handlebars::str!("test", "a\n  {{#if x}}\n  B\n  {{/if}}\nc");
     }
-    assert_eq!(indented::test(true).render(), "a\n  B\nc");
+    assert_eq!(indented::test::Vars { x: true }.render(), "a\n  B\nc");
 
     mod tabbed {
         typed_handlebars::str!("test", "a\n\t{{#if x}}\nB\n{{/if}}\nb");
     }
-    assert_eq!(tabbed::test(true).render(), "a\nB\nb");
+    assert_eq!(tabbed::test::Vars { x: true }.render(), "a\nB\nb");
 }
 
 /// Comments and `{{else}}` stand alone too — every tag that produces no output of its own.
@@ -55,13 +55,13 @@ fn comments_and_else_stand_alone() {
     mod comment {
         typed_handlebars::str!("test", "a\n{{! hi }}\nc");
     }
-    assert_eq!(comment::test().render(), "a\nc");
+    assert_eq!(comment::test::Vars {}.render(), "a\nc");
 
     mod branches {
         typed_handlebars::str!("test", "a\n{{#if x}}\nB\n{{else}}\nC\n{{/if}}\nd");
     }
-    assert_eq!(branches::test(true).render(), "a\nB\nd");
-    assert_eq!(branches::test(false).render(), "a\nC\nd");
+    assert_eq!(branches::test::Vars { x: true }.render(), "a\nB\nd");
+    assert_eq!(branches::test::Vars { x: false }.render(), "a\nC\nd");
 }
 
 /// An interpolation is **not** standalone: it is there to produce output, so its line is real.
@@ -71,12 +71,12 @@ fn an_interpolation_is_not_standalone() {
     mod escaped {
         typed_handlebars::str!("test", "a\n{{n}}\nb");
     }
-    assert_eq!(escaped::test("N").render(), "a\nN\nb");
+    assert_eq!(escaped::test::Vars { n: "N" }.render(), "a\nN\nb");
 
     mod raw {
         typed_handlebars::str!("test", "a\n{{{n}}}\nb");
     }
-    assert_eq!(raw::test("N").render(), "a\nN\nb");
+    assert_eq!(raw::test::Vars { n: "N" }.render(), "a\nN\nb");
 }
 
 /// "Alone" means alone. Anything else on the line — text or a second tag — and the whitespace is
@@ -86,17 +86,17 @@ fn anything_else_on_the_line_cancels_it() {
     mod text_after {
         typed_handlebars::str!("test", "a\n{{#if x}} z\nB\n{{/if}}\nc");
     }
-    assert_eq!(text_after::test(true).render(), "a\n z\nB\nc");
+    assert_eq!(text_after::test::Vars { x: true }.render(), "a\n z\nB\nc");
 
     mod two_tags {
         typed_handlebars::str!("test", "a\n{{#if x}}{{/if}}\nb");
     }
-    assert_eq!(two_tags::test(true).render(), "a\n\nb");
+    assert_eq!(two_tags::test::Vars { x: true }.render(), "a\n\nb");
 
     mod tag_space_tag {
         typed_handlebars::str!("test", "a\n{{! c }} {{! d }}\nz");
     }
-    assert_eq!(tag_space_tag::test().render(), "a\n \nz");
+    assert_eq!(tag_space_tag::test::Vars {}.render(), "a\n \nz");
 }
 
 /// The start and the end of a template bound a line as a newline does, so a tag against either
@@ -106,28 +106,28 @@ fn the_edges_of_the_template_bound_a_line() {
     mod at_start {
         typed_handlebars::str!("test", "{{#if x}}\nB\n{{/if}}\nc");
     }
-    assert_eq!(at_start::test(true).render(), "B\nc");
+    assert_eq!(at_start::test::Vars { x: true }.render(), "B\nc");
 
     mod indented_start {
         typed_handlebars::str!("test", "  {{#if x}}\nB\n{{/if}}\nc");
     }
-    assert_eq!(indented_start::test(true).render(), "B\nc");
+    assert_eq!(indented_start::test::Vars { x: true }.render(), "B\nc");
 
     mod at_end {
         typed_handlebars::str!("test", "a\n{{#if x}}\nB\n{{/if}}");
     }
-    assert_eq!(at_end::test(true).render(), "a\nB\n");
+    assert_eq!(at_end::test::Vars { x: true }.render(), "a\nB\n");
 
     // Trailing blanks are part of the tag's line, so they go with it.
     mod blanks_at_end {
         typed_handlebars::str!("test", "a\n{{#if x}}\nB\n{{/if}}   ");
     }
-    assert_eq!(blanks_at_end::test(true).render(), "a\nB\n");
+    assert_eq!(blanks_at_end::test::Vars { x: true }.render(), "a\nB\n");
 
     mod nothing_but_a_tag {
         typed_handlebars::str!("test", "{{! c }}");
     }
-    assert_eq!(nothing_but_a_tag::test().render(), "");
+    assert_eq!(nothing_but_a_tag::test::Vars {}.render(), "");
 }
 
 /// A standalone tag consumes the newline that ended its line, which puts the next tag at the start
@@ -138,18 +138,21 @@ fn standing_alone_carries_forward_to_the_next_tag() {
     mod indented_after {
         typed_handlebars::str!("test", "a\n{{! c }}\n  {{#if x}}\nB\n{{/if}}\nz");
     }
-    assert_eq!(indented_after::test(true).render(), "a\nB\nz");
+    assert_eq!(indented_after::test::Vars { x: true }.render(), "a\nB\nz");
 
     mod run_of_them {
         typed_handlebars::str!("test", "a\n{{! c }}\n{{! d }}\nz");
     }
-    assert_eq!(run_of_them::test().render(), "a\nz");
+    assert_eq!(run_of_them::test::Vars {}.render(), "a\nz");
 
     // …but it does not make the *following* line's interpolation standalone.
     mod then_an_interpolation {
         typed_handlebars::str!("test", "a\n{{! c }}\n{{n}}\nz");
     }
-    assert_eq!(then_an_interpolation::test("N").render(), "a\nN\nz");
+    assert_eq!(
+        then_an_interpolation::test::Vars { n: "N" }.render(),
+        "a\nN\nz"
+    );
 }
 
 /// Exactly one newline goes. A blank line around a tag was put there by the author and stays.
@@ -158,7 +161,7 @@ fn only_the_tags_own_newline_is_taken() {
     mod template {
         typed_handlebars::str!("test", "a\n\n{{! c }}\n\nb");
     }
-    assert_eq!(template::test().render(), "a\n\n\nb");
+    assert_eq!(template::test::Vars {}.render(), "a\n\n\nb");
 }
 
 /// Explicit `{{~ … ~}}` trimming still wins where it is asked for, and standalone handling does not
@@ -168,7 +171,7 @@ fn explicit_trimming_still_works() {
     mod template {
         typed_handlebars::str!("test", "  {{~#if some ~}}   Hello{{~/if~}}");
     }
-    assert_eq!(template::test(true).render(), "Hello");
+    assert_eq!(template::test::Vars { some: true }.render(), "Hello");
 }
 
 /// A partial alone on its line is standalone too, and its indentation is not dropped but
@@ -183,43 +186,46 @@ mod partials {
     /// Every line of the partial gets the indent, not just the first, and the tag's own line goes.
     #[test]
     fn the_indent_reaches_every_line() {
-        assert_eq!(indented().render(), "start\n    <a>\n    <b>\n    <c>end");
+        assert_eq!(
+            indented::Vars.render(),
+            "start\n    <a>\n    <b>\n    <c>end"
+        );
     }
 
     /// A partial whose text ends in a newline leaves no dangling indent after it — the indent is
     /// owed only when there is something to put after it.
     #[test]
     fn a_trailing_newline_gets_no_indent_after_it() {
-        assert_eq!(trailing_newline().render(), "start\n    <a>\nend");
+        assert_eq!(trailing_newline::Vars.render(), "start\n    <a>\nend");
     }
 
     #[test]
     fn one_line_partials_work_indented_or_not() {
-        assert_eq!(indented_one_line().render(), "start\n    <a>end");
-        assert_eq!(at_margin().render(), "start\n<a>end");
+        assert_eq!(indented_one_line::Vars.render(), "start\n    <a>end");
+        assert_eq!(at_margin::Vars.render(), "start\n<a>end");
     }
 
     /// Anything else on the line and the partial is ordinary: no indent, and the newline stays.
     #[test]
     fn anything_else_on_the_line_cancels_it() {
-        assert_eq!(inline().render(), "start\n  x<a>\n<b>\n<c>\nend");
+        assert_eq!(inline::Vars.render(), "start\n  x<a>\n<b>\n<c>\nend");
     }
 
     /// Indents **accumulate**: a partial included from inside another standalone partial is
     /// indented by both. Checked against handlebars.js, which composes them the same way.
     #[test]
     fn nested_standalone_partials_add_their_indents() {
-        assert_eq!(nested().render(), "start\n    X\n      <a>Yend");
+        assert_eq!(nested::Vars.render(), "start\n    X\n      <a>Yend");
     }
 
     #[test]
     fn the_end_of_the_template_ends_the_line() {
-        assert_eq!(at_eof().render(), "start\n    <a>\n    <b>\n    <c>");
+        assert_eq!(at_eof::Vars.render(), "start\n    <a>\n    <b>\n    <c>");
     }
 
     /// An empty partial leaves nothing at all — not even the indent it would have been given.
     #[test]
     fn an_empty_partial_leaves_nothing() {
-        assert_eq!(of_nothing().render(), "start\nend");
+        assert_eq!(of_nothing::Vars.render(), "start\nend");
     }
 }

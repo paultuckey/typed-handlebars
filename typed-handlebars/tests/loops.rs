@@ -12,10 +12,12 @@ fn each_index() {
         typed_handlebars::str!("test", r#"{{#each rows}}{{@index}}:{{name}} {{/each}}"#);
     }
     assert_eq!(
-        template::test(vec![
-            template::test::RowsItem::new("a"),
-            template::test::RowsItem::new("b"),
-        ])
+        template::test::Vars {
+            rows: vec![
+                template::test::RowsItem { name: "a" },
+                template::test::RowsItem { name: "b" },
+            ]
+        }
         .render(),
         "0:a 1:b "
     );
@@ -33,7 +35,7 @@ fn each_first_and_last() {
         );
     }
     assert_eq!(
-        template::test(vec![1, 2, 3]).render(),
+        template::test::Vars { xs: vec![1, 2, 3] }.render(),
         "[true,false,0][false,false,1][false,true,2]"
     );
 
@@ -44,7 +46,7 @@ fn each_first_and_last() {
             r#"{{#each xs}}[{{@first}},{{@last}}]{{/each}}"#
         );
     }
-    assert_eq!(one::test(vec![9]).render(), "[true,true]");
+    assert_eq!(one::test::Vars { xs: vec![9] }.render(), "[true,true]");
 }
 
 /// Both work as conditions as well as values — `{{#unless @last}}` between items is the reason
@@ -58,7 +60,10 @@ fn each_first_and_last_are_conditions_too() {
             r#"{{#each xs}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}"#
         );
     }
-    assert_eq!(separator::test(vec![1, 2, 3]).render(), "1, 2, 3");
+    assert_eq!(
+        separator::test::Vars { xs: vec![1, 2, 3] }.render(),
+        "1, 2, 3"
+    );
 
     mod first_only {
         typed_handlebars::str!(
@@ -67,7 +72,7 @@ fn each_first_and_last_are_conditions_too() {
             r#"{{#each xs}}{{#if @first}}F{{else}}-{{/if}}{{/each}}"#
         );
     }
-    assert_eq!(first_only::test(vec![1, 2, 3]).render(), "F--");
+    assert_eq!(first_only::test::Vars { xs: vec![1, 2, 3] }.render(), "F--");
 }
 
 /// An `@…` is supplied by the loop, and blocks that supply nothing are transparent to it — so
@@ -84,10 +89,12 @@ fn a_private_is_visible_through_blocks_that_supply_nothing() {
         );
     }
     assert_eq!(
-        inside_if::test(vec![
-            inside_if::test::XsItem::new(true),
-            inside_if::test::XsItem::new(false),
-        ])
+        inside_if::test::Vars {
+            xs: vec![
+                inside_if::test::XsItem { on: true },
+                inside_if::test::XsItem { on: false },
+            ]
+        }
         .render(),
         "[0]"
     );
@@ -100,10 +107,16 @@ fn a_private_is_visible_through_blocks_that_supply_nothing() {
         );
     }
     assert_eq!(
-        inside_with::test(vec![
-            inside_with::test::RowsItem::new(inside_with::test::RowsItemP::new("a")),
-            inside_with::test::RowsItem::new(inside_with::test::RowsItemP::new("b")),
-        ])
+        inside_with::test::Vars {
+            rows: vec![
+                inside_with::test::RowsItem {
+                    p: inside_with::test::RowsItemP { n: "a" }
+                },
+                inside_with::test::RowsItem {
+                    p: inside_with::test::RowsItemP { n: "b" }
+                },
+            ]
+        }
         .render(),
         "[0:a][1:b]"
     );
@@ -117,7 +130,7 @@ fn a_private_is_visible_through_blocks_that_supply_nothing() {
             r#"{{#each xs}}{{#if @last}}L{{else if @first}}F{{else}}m{{/if}}{{/each}}"#
         );
     }
-    assert_eq!(chained::test(vec![1, 2, 3]).render(), "FmL");
+    assert_eq!(chained::test::Vars { xs: vec![1, 2, 3] }.render(), "FmL");
 }
 
 /// `../` on a private steps out one **loop**, not one scope, so an intervening `{{#if}}` or
@@ -132,13 +145,17 @@ fn a_parent_private_steps_out_one_loop_not_one_block() {
         );
     }
     let rows = vec![
-        through_if::test::RowsItem::new(vec![
-            through_if::test::RowsItemCellsItem::new(true),
-            through_if::test::RowsItemCellsItem::new(true),
-        ]),
-        through_if::test::RowsItem::new(vec![through_if::test::RowsItemCellsItem::new(true)]),
+        through_if::test::RowsItem {
+            cells: vec![
+                through_if::test::RowsItemCellsItem { on: true },
+                through_if::test::RowsItemCellsItem { on: true },
+            ],
+        },
+        through_if::test::RowsItem {
+            cells: vec![through_if::test::RowsItemCellsItem { on: true }],
+        },
     ];
-    assert_eq!(through_if::test(rows).render(), "00;1;");
+    assert_eq!(through_if::test::Vars { rows }.render(), "00;1;");
 }
 
 /// `../` steps out to the enclosing loop, as it does for `@index`.
@@ -152,11 +169,11 @@ fn each_first_reaches_the_enclosing_loop() {
         );
     }
     let rows = vec![
-        template::test::RowsItem::new(vec![1, 2]),
-        template::test::RowsItem::new(vec![3]),
+        template::test::RowsItem { cells: vec![1, 2] },
+        template::test::RowsItem { cells: vec![3] },
     ];
     assert_eq!(
-        template::test(rows).render(),
+        template::test::Vars { rows }.render(),
         "true/true;true/false;|false/true;|"
     );
 }
@@ -173,7 +190,7 @@ fn a_block_alias_cannot_shadow_the_loop_counter() {
             r#"{{#each xs as |i|}}{{i}}:{{@index}};{{/each}}"#
         );
     }
-    assert_eq!(template::test(vec![7, 8]).render(), "7:0;8:1;");
+    assert_eq!(template::test::Vars { xs: vec![7, 8] }.render(), "7:0;8:1;");
 
     // The mirror of that: an alias named after a private is a plain variable, not a reference
     // to `@first`.
@@ -184,7 +201,10 @@ fn a_block_alias_cannot_shadow_the_loop_counter() {
             r#"{{#each xs as |first|}}{{first}};{{/each}}"#
         );
     }
-    assert_eq!(aliased_first::test(vec![4, 5]).render(), "4;5;");
+    assert_eq!(
+        aliased_first::test::Vars { xs: vec![4, 5] }.render(),
+        "4;5;"
+    );
 }
 
 /// A comment inside an `{{#each}}` used to hang the compiler outright: the scan that decides
@@ -199,7 +219,7 @@ fn a_comment_inside_each_terminates() {
             r#"{{#each xs}}{{! why }}[{{this}}]{{/each}}"#
         );
     }
-    assert_eq!(template::test(vec![1, 2]).render(), "[1][2]");
+    assert_eq!(template::test::Vars { xs: vec![1, 2] }.render(), "[1][2]");
 
     // `{{else}}` is found by the same kind of scan, which had the same bug.
     mod with_else {
@@ -209,7 +229,13 @@ fn a_comment_inside_each_terminates() {
             r#"{{#each xs}}{{! why }}[{{this}}]{{else}}none{{/each}}"#
         );
     }
-    assert_eq!(with_else::test(Vec::<i32>::new()).render(), "none");
+    assert_eq!(
+        with_else::test::Vars {
+            xs: Vec::<i32>::new()
+        }
+        .render(),
+        "none"
+    );
 }
 
 /// `{{else}}` inside `{{#each}}` covers the empty list. Mirrored in `reference-ts`.
@@ -219,10 +245,13 @@ fn each_else() {
         typed_handlebars::str!("test", r#"{{#each rows}}{{name}}{{else}}none{{/each}}"#);
     }
     assert_eq!(
-        template::test(vec![template::test::RowsItem::new("a")]).render(),
+        template::test::Vars {
+            rows: vec![template::test::RowsItem { name: "a" }]
+        }
+        .render(),
         "a"
     );
-    assert_eq!(template::test::Builder::new().render(), "none");
+    assert_eq!(template::test::builder().render(), "none");
 }
 
 #[test]
@@ -235,7 +264,10 @@ fn for_helper() {
         );
     }
     assert_eq!(
-        template::test(vec![template::test::AuthorsItem::new("King")]).render(),
+        template::test::Vars {
+            authors: vec![template::test::AuthorsItem { first_name: "King" }]
+        }
+        .render(),
         //language=html
         "<div><p>Hello King</p></div>"
     );
@@ -251,7 +283,11 @@ fn each_can_reach_the_enclosing_scope() {
         );
     }
     assert_eq!(
-        template::test(vec![template::test::RowsItem::new("King")], "Studio One").render(),
+        template::test::Vars {
+            rows: vec![template::test::RowsItem { name: "King" }],
+            company: "Studio One"
+        }
+        .render(),
         //language=html
         "<li>King of Studio One</li>"
     );
@@ -267,7 +303,10 @@ fn each_accepts_a_named_item() {
         );
     }
     assert_eq!(
-        template::test(vec![template::test::RowsItem::new("King")]).render(),
+        template::test::Vars {
+            rows: vec![template::test::RowsItem { name: "King" }]
+        }
+        .render(),
         //language=html
         "<li>King</li>"
     );
@@ -285,21 +324,33 @@ fn each_accepts_borrowed_lists() {
         );
     }
     let rows = vec![
-        template::test::RowsItem::new("King"),
-        template::test::RowsItem::new("Tubby"),
+        template::test::RowsItem { name: "King" },
+        template::test::RowsItem { name: "Tubby" },
     ];
     let expected = "<li>King</li><li>Tubby</li>";
 
-    assert_eq!(template::test(&rows).render(), expected);
-    assert_eq!(template::test(rows.as_slice()).render(), expected);
+    assert_eq!(template::test::Vars { rows: &rows }.render(), expected);
+    assert_eq!(
+        template::test::Vars {
+            rows: rows.as_slice()
+        }
+        .render(),
+        expected
+    );
 
     // The caller still owns it, and can hand it over afterwards if they want to.
     assert_eq!(rows.len(), 2);
-    assert_eq!(template::test(rows).render(), expected);
+    assert_eq!(template::test::Vars { rows }.render(), expected);
 
-    let array = [template::test::RowsItem::new("King")];
-    assert_eq!(template::test(&array).render(), "<li>King</li>");
-    assert_eq!(template::test(array).render(), "<li>King</li>");
+    let array = [template::test::RowsItem { name: "King" }];
+    assert_eq!(
+        template::test::Vars { rows: &array }.render(),
+        "<li>King</li>"
+    );
+    assert_eq!(
+        template::test::Vars { rows: array }.render(),
+        "<li>King</li>"
+    );
 }
 
 /// Rendering borrows rather than consumes, so a template may walk the same list twice.
@@ -312,10 +363,12 @@ fn the_same_list_can_be_iterated_twice() {
             r#"{{#each rows}}{{name}}{{/each}}|{{#each rows}}{{name}}{{/each}}"#
         );
     }
-    let page = template::test(vec![
-        template::test::RowsItem::new("a"),
-        template::test::RowsItem::new("b"),
-    ]);
+    let page = template::test::Vars {
+        rows: vec![
+            template::test::RowsItem { name: "a" },
+            template::test::RowsItem { name: "b" },
+        ],
+    };
     assert_eq!(page.render(), "ab|ab");
     // …and the value is still usable afterwards.
     assert_eq!(page.render(), "ab|ab");

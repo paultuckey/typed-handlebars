@@ -15,8 +15,8 @@
 //! <button id="btn{{ btn_id }}">{{ btn_name }}</button>
 //! ```
 //!
-//! [`directory!`] turns each file into a module with a function named after it, taking the
-//! template's variables in the order they first appear:
+//! [`directory!`] turns each file into a module holding a `Vars` — every variable the template
+//! uses, named. It is an ordinary struct, so you write it as a literal:
 //!
 //! ```
 //! mod templates {
@@ -25,18 +25,22 @@
 //! }
 //!
 //! assert_eq!(
-//!     templates::button(42, "Save").render(),
+//!     templates::button::Vars { btn_id: 42, btn_name: "Save" }.render(),
 //!     r#"<button id="btn42">Save</button>"#
 //! );
 //! ```
 //!
-//! Each template also gets a `Builder`, which names each variable rather than relying on argument
-//! order, and leaves anything unset empty — as an undefined variable is in Handlebars:
+//! Nothing depends on argument order, your IDE offers the names, and the compiler checks them: a
+//! misspelled field names the one you meant, and a variable added to the `.hbs` breaks every call
+//! site rather than quietly rendering as nothing.
+//!
+//! When you do not have every variable, `builder()` sets the ones you do have and leaves the rest
+//! empty — as an undefined variable is in Handlebars:
 //!
 //! ```
 //! # mod templates { typed_handlebars::directory!("doc-templates/"); }
 //! assert_eq!(
-//!     templates::button::Builder::new().btn_id(42).render(),
+//!     templates::button::builder().btn_id(42).render(),
 //!     r#"<button id="btn42"></button>"#
 //! );
 //! ```
@@ -54,22 +58,24 @@
 //!
 //! # Rendering
 //!
-//! `render()` returns a `String`, but a template also implements [`Display`](core::fmt::Display)
-//! and exposes `render_to`, so it can be nested inside another template or written straight into a
-//! buffer you already have — with no intermediate `String` per level:
+//! `render()` returns a `String`, and `render_to` writes into any [`fmt::Write`](core::fmt::Write)
+//! sink, so a buffer you already have needs no throwaway `String`:
 //!
 //! ```
 //! # mod templates { typed_handlebars::directory!("doc-templates/"); }
 //! use core::fmt::Write;
 //!
 //! let mut page = String::from("<div>");
-//! templates::button(42, "Save").render_to(&mut page).unwrap();
+//! templates::button::Vars { btn_id: 42, btn_name: "Save" }
+//!     .render_to(&mut page)
+//!     .unwrap();
 //! page.push_str("</div>");
 //! assert_eq!(page, r#"<div><button id="btn42">Save</button></div>"#);
 //! ```
 //!
 //! `{{ name }}` is HTML-escaped and `{{{ name }}}` is not, as Handlebars specifies. Markup you
-//! have already rendered goes in `{{{ }}}`.
+//! have already rendered goes in `{{{ }}}` — which is how one template's output is nested inside
+//! another, exactly as handlebars.js passes a rendered fragment in as a variable.
 //!
 //! A variable can be an `Option`, and `None` writes nothing — as null and undefined do in
 //! handlebars.js — so a nullable column needs no unwrapping on the way in:
@@ -78,7 +84,7 @@
 //! # mod templates { typed_handlebars::directory!("doc-templates/"); }
 //! let missing: Option<&str> = None;
 //! assert_eq!(
-//!     templates::button(42, missing).render(),
+//!     templates::button::Vars { btn_id: 42, btn_name: missing }.render(),
 //!     r#"<button id="btn42"></button>"#
 //! );
 //! ```
@@ -104,10 +110,9 @@ extern crate self as typed_handlebars;
 /// Generates a module per `.hbs` file in a directory, mirroring the directory layout.
 ///
 /// The path is relative to the crate root (the directory holding `Cargo.toml`). Every `.hbs` file
-/// beneath it becomes a module named after the file, holding a constructor function, a
-/// [`Builder`](crate#the-builder), and whatever types the template implies. Subdirectories become
-/// nested modules, so `templates/admin/row.hbs` is `templates::admin::row` and two files called
-/// `row.hbs` in different folders do not collide.
+/// beneath it becomes a module named after the file, holding a `Vars`, a `builder()`, and whatever
+/// types the template implies. Subdirectories become nested modules, so `templates/admin/row.hbs`
+/// is `templates::admin::row` and two files called `row.hbs` in different folders do not collide.
 ///
 /// ```
 /// mod templates {
@@ -116,10 +121,10 @@ extern crate self as typed_handlebars;
 ///
 /// // doc-templates/button.hbs and doc-templates/greeting.hbs
 /// assert_eq!(
-///     templates::button(42, "Save").render(),
+///     templates::button::Vars { btn_id: 42, btn_name: "Save" }.render(),
 ///     r#"<button id="btn42">Save</button>"#
 /// );
-/// assert_eq!(templates::greeting("King").render(), "<p>Hello King!</p>");
+/// assert_eq!(templates::greeting::Vars { name: "King" }.render(), "<p>Hello King!</p>");
 /// ```
 ///
 /// `{{> partial}}` is resolved against this tree at compile time. Editing any template — or any
@@ -139,7 +144,7 @@ pub use typed_handlebars_macros::typed_handlebars_directory as directory;
 /// }
 ///
 /// assert_eq!(
-///     button::button(42, "Save").render(),
+///     button::button::Vars { btn_id: 42, btn_name: "Save" }.render(),
 ///     r#"<button id="btn42">Save</button>"#
 /// );
 /// ```
@@ -159,7 +164,7 @@ pub use typed_handlebars_macros::typed_handlebars_file as file;
 ///     typed_handlebars::str!("greeting", "<p>Hello {{ name }}!</p>");
 /// }
 ///
-/// assert_eq!(templates::greeting("King").render(), "<p>Hello King!</p>");
+/// assert_eq!(templates::greeting::Vars { name: "King" }.render(), "<p>Hello King!</p>");
 /// ```
 ///
 /// The generated types come from the template just as they do for a file, so a list still
@@ -171,10 +176,10 @@ pub use typed_handlebars_macros::typed_handlebars_file as file;
 /// }
 ///
 /// let rows = vec![
-///     templates::list::RowsItem::new("King"),
-///     templates::list::RowsItem::new("Tubby"),
+///     templates::list::RowsItem { name: "King" },
+///     templates::list::RowsItem { name: "Tubby" },
 /// ];
-/// assert_eq!(templates::list(rows).render(), "<li>King</li><li>Tubby</li>");
+/// assert_eq!(templates::list::Vars { rows }.render(), "<li>King</li><li>Tubby</li>");
 /// ```
 #[doc(inline)]
 pub use typed_handlebars_macros::typed_handlebars_str as str;

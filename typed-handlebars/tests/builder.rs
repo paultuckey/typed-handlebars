@@ -17,12 +17,12 @@ fn the_builder_leaves_unset_variables_empty() {
         );
     }
     assert_eq!(
-        template::test::Builder::new().render(),
+        template::test::builder().render(),
         "<h1></h1><p></p>",
         "nothing set at all"
     );
     assert_eq!(
-        template::test::Builder::new().title("Dub").render(),
+        template::test::builder().title("Dub").render(),
         "<h1>Dub</h1><p></p>",
         "only one of the two set"
     );
@@ -34,16 +34,13 @@ fn unset_lists_and_conditions_are_empty() {
     mod list {
         typed_handlebars::str!("test", r#"[{{#each rows}}<li>{{name}}</li>{{/each}}]"#);
     }
-    assert_eq!(list::test::Builder::new().render(), "[]");
+    assert_eq!(list::test::builder().render(), "[]");
 
     mod conditional {
         typed_handlebars::str!("test", r#"[{{#if shown}}yes{{/if}}]"#);
     }
-    assert_eq!(conditional::test::Builder::new().render(), "[]");
-    assert_eq!(
-        conditional::test::Builder::new().shown(true).render(),
-        "[yes]"
-    );
+    assert_eq!(conditional::test::builder().render(), "[]");
+    assert_eq!(conditional::test::builder().shown(true).render(), "[yes]");
 }
 
 /// A record left out renders as a record whose own fields are all empty.
@@ -52,10 +49,10 @@ fn an_unset_record_is_empty_all_the_way_down() {
     mod template {
         typed_handlebars::str!("test", r#"[{{person.first}}|{{person.last}}]"#);
     }
-    assert_eq!(template::test::Builder::new().render(), "[|]");
+    assert_eq!(template::test::builder().render(), "[|]");
     assert_eq!(
-        template::test::Builder::new()
-            .person(template::test::PersonBuilder::new().first("King").build())
+        template::test::builder()
+            .person(template::test::Person::builder().first("King").build())
             .render(),
         "[King|]",
         "a record can itself be partly set"
@@ -70,7 +67,7 @@ fn the_builder_is_order_independent() {
         typed_handlebars::str!("test", r#"<p>{{firstname}} {{lastname}}</p>"#);
     }
     assert_eq!(
-        template::test::Builder::new()
+        template::test::builder()
             .firstname("King")
             .lastname("Tubby")
             .render(),
@@ -78,7 +75,7 @@ fn the_builder_is_order_independent() {
     );
     // …and the other way round.
     assert_eq!(
-        template::test::Builder::new()
+        template::test::builder()
             .lastname("Tubby")
             .firstname("King")
             .render(),
@@ -97,11 +94,11 @@ fn the_builder_wires_up_lists() {
         );
     }
     let rows = vec![
-        template::test::RowsItemBuilder::new()
+        template::test::RowsItem::builder()
             .name("King")
             .email("king@example.com")
             .build(),
-        template::test::RowsItemBuilder::new()
+        template::test::RowsItem::builder()
             .email("tubby@example.com")
             .name("Tubby")
             .build(),
@@ -109,18 +106,12 @@ fn the_builder_wires_up_lists() {
     let expected = "<h1>Dub</h1><li>King king@example.com</li><li>Tubby tubby@example.com</li>";
 
     assert_eq!(
-        template::test::Builder::new()
-            .title("Dub")
-            .rows(&rows)
-            .render(),
+        template::test::builder().title("Dub").rows(&rows).render(),
         expected
     );
 
     // `build` hands back the template value, which can be rendered more than once.
-    let page = template::test::Builder::new()
-        .rows(rows)
-        .title("Dub")
-        .build();
+    let page = template::test::builder().rows(rows).title("Dub").build();
     assert_eq!(page.render(), expected);
     assert_eq!(page.render(), expected);
 }

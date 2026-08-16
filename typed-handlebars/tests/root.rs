@@ -10,7 +10,14 @@ fn the_top_level_is_reachable_from_inside_a_loop() {
     mod template {
         typed_handlebars::str!("test", r#"{{#each rows}}[{{@root.title}}]{{/each}}"#);
     }
-    assert_eq!(template::test(vec![(), ()], "Dub").render(), "[Dub][Dub]");
+    assert_eq!(
+        template::test::Vars {
+            rows: vec![(), ()],
+            title: "Dub"
+        }
+        .render(),
+        "[Dub][Dub]"
+    );
 }
 
 #[test]
@@ -19,7 +26,11 @@ fn and_from_inside_a_with() {
         typed_handlebars::str!("test", r#"{{#with person}}[{{@root.title}}]{{/with}}"#);
     }
     assert_eq!(
-        template::test(template::test::Person::new(), "Dub").render(),
+        template::test::Vars {
+            person: template::test::Person {},
+            title: "Dub"
+        }
+        .render(),
         "[Dub]"
     );
 }
@@ -29,7 +40,7 @@ fn and_from_the_top_level_itself() {
     mod template {
         typed_handlebars::str!("test", r#"[{{@root.title}}]"#);
     }
-    assert_eq!(template::test("Dub").render(), "[Dub]");
+    assert_eq!(template::test::Vars { title: "Dub" }.render(), "[Dub]");
 }
 
 /// `../` has no effect on `@root`, so it is stripped rather than walked. Pinned because the
@@ -43,8 +54,13 @@ fn a_parent_prefix_makes_no_difference() {
             r#"{{#each rows}}{{#each inner}}[{{@root.title}}|{{@../root.title}}]{{/each}}{{/each}}"#
         );
     }
-    let rows = vec![template::test::RowsItem::new(vec![(), ()])];
-    assert_eq!(template::test(rows, "Dub").render(), "[Dub|Dub][Dub|Dub]");
+    let rows = vec![template::test::RowsItem {
+        inner: vec![(), ()],
+    }];
+    assert_eq!(
+        template::test::Vars { rows, title: "Dub" }.render(),
+        "[Dub|Dub][Dub|Dub]"
+    );
 }
 
 #[test]
@@ -55,8 +71,17 @@ fn a_path_beneath_the_root_can_be_any_depth() {
             r#"{{#each rows}}[{{@root.page.person.name}}]{{/each}}"#
         );
     }
-    let page = template::test::Page::new(template::test::PagePerson::new("King"));
-    assert_eq!(template::test(vec![()], page).render(), "[King]");
+    let page = template::test::Page {
+        person: template::test::PagePerson { name: "King" },
+    };
+    assert_eq!(
+        template::test::Vars {
+            rows: vec![()],
+            page
+        }
+        .render(),
+        "[King]"
+    );
 }
 
 #[test]
@@ -67,8 +92,22 @@ fn the_root_can_be_tested_as_well_as_written() {
             r#"{{#each rows}}[{{#if @root.title}}{{@root.title}}{{else}}-{{/if}}]{{/each}}"#
         );
     }
-    assert_eq!(template::test(vec![()], "Dub").render(), "[Dub]");
-    assert_eq!(template::test(vec![()], "").render(), "[-]");
+    assert_eq!(
+        template::test::Vars {
+            rows: vec![()],
+            title: "Dub"
+        }
+        .render(),
+        "[Dub]"
+    );
+    assert_eq!(
+        template::test::Vars {
+            rows: vec![()],
+            title: ""
+        }
+        .render(),
+        "[-]"
+    );
 }
 
 /// The two constructs compose: `{{@root.rows.length}}` counts the top-level list from inside it.
@@ -77,7 +116,13 @@ fn a_root_list_can_be_counted_from_inside_itself() {
     mod template {
         typed_handlebars::str!("test", r#"{{#each rows}}[{{@root.rows.length}}]{{/each}}"#);
     }
-    assert_eq!(template::test(vec![(), (), ()]).render(), "[3][3][3]");
+    assert_eq!(
+        template::test::Vars {
+            rows: vec![(), (), ()]
+        }
+        .render(),
+        "[3][3][3]"
+    );
 }
 
 /// One field, whichever way it is reached — `{{ title }}` at the top and `{{@root.title}}` inside a
@@ -90,7 +135,14 @@ fn a_root_reference_and_a_plain_one_name_the_same_field() {
             r#"{{ title }}{{#each rows}}[{{@root.title}}]{{/each}}"#
         );
     }
-    assert_eq!(template::test("Dub", vec![()]).render(), "Dub[Dub]");
+    assert_eq!(
+        template::test::Vars {
+            title: "Dub",
+            rows: vec![()]
+        }
+        .render(),
+        "Dub[Dub]"
+    );
 }
 
 /// `{{#each @root.rows}}` and `{{#with @root.person}}` are legal in handlebars.js. They need no
@@ -108,11 +160,18 @@ fn the_root_can_be_a_block_subject() {
         );
     }
     assert_eq!(
-        iterated::test(vec![iterated::test::RowsItem::new("King")]).render(),
+        iterated::test::Vars {
+            rows: vec![iterated::test::RowsItem { name: "King" }]
+        }
+        .render(),
         "[King]"
     );
     assert_eq!(
-        entered::test(vec![()], entered::test::Person::new("Tubby")).render(),
+        entered::test::Vars {
+            rows: vec![()],
+            person: entered::test::Person { name: "Tubby" }
+        }
+        .render(),
         "[Tubby]"
     );
 }
@@ -125,7 +184,11 @@ fn a_partial_sees_the_including_templates_root() {
         typed_handlebars::directory!("tests/templates/root/");
     }
     assert_eq!(
-        templates::page(vec![templates::page::RowsItem::new("King")], "Dub").render(),
+        templates::page::Vars {
+            rows: vec![templates::page::RowsItem { name: "King" }],
+            title: "Dub",
+        }
+        .render(),
         "<li>King (Dub)</li>"
     );
 }

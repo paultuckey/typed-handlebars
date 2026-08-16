@@ -15,7 +15,7 @@ fn test_comment() {
             r#"Note: {{! This is a comment }} and {{!-- {{so is this}} --}}\\{{{{}}"#,
         );
     }
-    assert_eq!(template::test().render(), "Note:  and \\{{");
+    assert_eq!(template::test::Vars.render(), "Note:  and \\{{");
 }
 
 /// A comment can close with a `~` inside the token — `{{! … ~}}` and `{{!-- … --~}}` — which
@@ -30,7 +30,7 @@ fn a_comment_can_trim_the_whitespace_after_it() {
             "x{{!-- c --~}}   y"
         );
     }
-    assert_eq!(long::test().render(), "xy");
+    assert_eq!(long::test::Vars {}.render(), "xy");
 
     mod short {
         typed_handlebars::str!(
@@ -39,7 +39,7 @@ fn a_comment_can_trim_the_whitespace_after_it() {
             "x{{! c ~}}   y"
         );
     }
-    assert_eq!(short::test().render(), "xy");
+    assert_eq!(short::test::Vars {}.render(), "xy");
 
     // Both ends at once, and the trim reaches across newlines.
     mod both_ends {
@@ -49,7 +49,7 @@ fn a_comment_can_trim_the_whitespace_after_it() {
             "x   {{~!-- c --~}}\n\n   y"
         );
     }
-    assert_eq!(both_ends::test().render(), "xy");
+    assert_eq!(both_ends::test::Vars {}.render(), "xy");
 
     // Without the `~` the whitespace stays, which is what makes the test above mean something.
     mod untrimmed {
@@ -59,7 +59,7 @@ fn a_comment_can_trim_the_whitespace_after_it() {
             "x{{!-- c --}}   y"
         );
     }
-    assert_eq!(untrimmed::test().render(), "x   y");
+    assert_eq!(untrimmed::test::Vars {}.render(), "x   y");
 }
 
 /// Whichever close comes first wins, so a `--~}}` after the comment has already ended is just
@@ -73,7 +73,7 @@ fn a_comment_ends_at_its_first_close() {
             "x{{!-- a --}} b --~}}   y"
         );
     }
-    assert_eq!(template::test().render(), "x b --~}}   y");
+    assert_eq!(template::test::Vars {}.render(), "x b --~}}   y");
 }
 
 /// A comment is the one expression with no name, so an empty one is legal rather than
@@ -86,7 +86,7 @@ fn a_comment_may_be_empty() {
             "x{{!}}y"
         );
     }
-    assert_eq!(short::test().render(), "xy");
+    assert_eq!(short::test::Vars {}.render(), "xy");
 
     mod long {
         typed_handlebars::str!(
@@ -95,7 +95,7 @@ fn a_comment_may_be_empty() {
             "x{{!----}}y"
         );
     }
-    assert_eq!(long::test().render(), "xy");
+    assert_eq!(long::test::Vars {}.render(), "xy");
 
     mod trimming {
         typed_handlebars::str!(
@@ -104,7 +104,7 @@ fn a_comment_may_be_empty() {
             "x{{!~}}   y"
         );
     }
-    assert_eq!(trimming::test().render(), "xy");
+    assert_eq!(trimming::test::Vars {}.render(), "xy");
 }
 
 /// The long form exists so a comment can contain `}}`, and a bare `~}}` inside one is text
@@ -118,7 +118,7 @@ fn a_long_comment_swallows_braces_and_stray_tildes() {
             "x{{!-- {{a}} and ~}} and -- --}}y"
         );
     }
-    assert_eq!(template::test().render(), "xy");
+    assert_eq!(template::test::Vars {}.render(), "xy");
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn test_trimming() {
             r#"  {{~#if some ~}}   Hello{{~/if~}}"#,
         );
     }
-    assert_eq!(template::test(true).render(), "Hello");
+    assert_eq!(template::test::Vars { some: true }.render(), "Hello");
 }
 
 #[test]
@@ -141,5 +141,5 @@ fn test_escaped() {
             "{{{{skip}}}}wang doodle {{{{/dandy}}}}{{{{/skip}}}}"
         );
     }
-    assert_eq!(template::test().render(), "wang doodle {{{{/dandy}}}}");
+    assert_eq!(template::test::Vars.render(), "wang doodle {{{{/dandy}}}}");
 }

@@ -13,7 +13,13 @@ fn none_renders_as_nothing() {
         typed_handlebars::str!("test", r#"<td>{{ guessed_datetime }}</td>"#);
     }
     let absent: Option<String> = None;
-    assert_eq!(template::test(absent).render(), "<td></td>");
+    assert_eq!(
+        template::test::Vars {
+            guessed_datetime: absent
+        }
+        .render(),
+        "<td></td>"
+    );
 }
 
 #[test]
@@ -22,7 +28,10 @@ fn some_renders_what_it_holds() {
         typed_handlebars::str!("test", r#"<td>{{ guessed_datetime }}</td>"#);
     }
     assert_eq!(
-        template::test(Some("2026-08-15")).render(),
+        template::test::Vars {
+            guessed_datetime: Some("2026-08-15")
+        }
+        .render(),
         "<td>2026-08-15</td>"
     );
 }
@@ -38,11 +47,20 @@ fn some_is_escaped_and_raw_is_not() {
         typed_handlebars::str!("test", r#"{{{ note }}}"#);
     }
     assert_eq!(
-        escaped::test(Some("<b>hi</b>")).render(),
+        escaped::test::Vars {
+            note: Some("<b>hi</b>")
+        }
+        .render(),
         "&lt;b&gt;hi&lt;/b&gt;"
     );
-    assert_eq!(raw::test(Some("<b>hi</b>")).render(), "<b>hi</b>");
-    assert_eq!(raw::test(None::<&str>).render(), "");
+    assert_eq!(
+        raw::test::Vars {
+            note: Some("<b>hi</b>")
+        }
+        .render(),
+        "<b>hi</b>"
+    );
+    assert_eq!(raw::test::Vars { note: None::<&str> }.render(), "");
 }
 
 /// A row read from a database is usually still owned by the caller, so the nullable column arrives
@@ -59,8 +77,14 @@ fn an_option_can_be_passed_by_reference() {
         note: Some("kept".into()),
     };
     let empty = Row { note: None };
-    assert_eq!(template::test(&row.note).render(), "<td>kept</td>");
-    assert_eq!(template::test(&empty.note).render(), "<td></td>");
+    assert_eq!(
+        template::test::Vars { note: &row.note }.render(),
+        "<td>kept</td>"
+    );
+    assert_eq!(
+        template::test::Vars { note: &empty.note }.render(),
+        "<td></td>"
+    );
 }
 
 #[test]
@@ -69,7 +93,12 @@ fn any_displayable_type_can_be_optional() {
         typed_handlebars::str!("test", r#"{{ a }}|{{ b }}|{{ c }}"#);
     }
     assert_eq!(
-        template::test(Some(42), None::<f64>, Some(String::from("s"))).render(),
+        template::test::Vars {
+            a: Some(42),
+            b: None::<f64>,
+            c: Some(String::from("s"))
+        }
+        .render(),
         "42||s"
     );
 }
@@ -81,8 +110,11 @@ fn an_option_can_be_both_tested_and_printed() {
     mod template {
         typed_handlebars::str!("test", r#"{{#if note}}<i>{{ note }}</i>{{else}}-{{/if}}"#);
     }
-    assert_eq!(template::test(Some("here")).render(), "<i>here</i>");
-    assert_eq!(template::test(None::<&str>).render(), "-");
+    assert_eq!(
+        template::test::Vars { note: Some("here") }.render(),
+        "<i>here</i>"
+    );
+    assert_eq!(template::test::Vars { note: None::<&str> }.render(), "-");
 }
 
 #[test]
@@ -91,11 +123,23 @@ fn a_record_field_can_be_absent() {
         typed_handlebars::str!("test", r#"{{ person.name }}/{{ person.nickname }}"#);
     }
     assert_eq!(
-        template::test(template::test::Person::new("King", None::<&str>)).render(),
+        template::test::Vars {
+            person: template::test::Person {
+                name: "King",
+                nickname: None::<&str>
+            }
+        }
+        .render(),
         "King/"
     );
     assert_eq!(
-        template::test(template::test::Person::new("King", Some("Tubby"))).render(),
+        template::test::Vars {
+            person: template::test::Person {
+                name: "King",
+                nickname: Some("Tubby")
+            }
+        }
+        .render(),
         "King/Tubby"
     );
 }
@@ -111,11 +155,17 @@ fn a_nullable_column_renders_across_a_loop() {
         );
     }
     let rows = vec![
-        template::test::RowsItem::new(1, Some("2026-08-15")),
-        template::test::RowsItem::new(2, None),
+        template::test::RowsItem {
+            id: 1,
+            guessed_datetime: Some("2026-08-15"),
+        },
+        template::test::RowsItem {
+            id: 2,
+            guessed_datetime: None,
+        },
     ];
     assert_eq!(
-        template::test(rows).render(),
+        template::test::Vars { rows }.render(),
         "<tr><td>1</td><td>2026-08-15</td></tr><tr><td>2</td><td></td></tr>"
     );
 }
@@ -128,7 +178,7 @@ fn a_list_of_options_renders_item_by_item() {
         typed_handlebars::str!("test", r#"{{#each tags}}[{{this}}]{{/each}}"#);
     }
     let tags: Vec<Option<String>> = vec![Some("a".into()), None, Some("c".into())];
-    assert_eq!(template::test(tags).render(), "[a][][c]");
+    assert_eq!(template::test::Vars { tags }.render(), "[a][][c]");
 }
 
 /// Every scope a value can be written from resolves to a different Rust expression, so an `Option`
@@ -151,18 +201,29 @@ fn an_option_renders_from_any_scope() {
         );
     }
     assert_eq!(
-        with::test(with::test::Person::new(None::<&str>)).render(),
+        with::test::Vars {
+            person: with::test::Person {
+                nickname: None::<&str>
+            }
+        }
+        .render(),
         "[]"
     );
     assert_eq!(
-        parent::test(vec![parent::test::RowsItem::new(1)], None::<&str>).render(),
+        parent::test::Vars {
+            rows: vec![parent::test::RowsItem { id: 1 }],
+            caption: None::<&str>
+        }
+        .render(),
         "[1]"
     );
     assert_eq!(
-        named::test(vec![
-            named::test::RowsItem::new(Some("n")),
-            named::test::RowsItem::new(None)
-        ])
+        named::test::Vars {
+            rows: vec![
+                named::test::RowsItem { note: Some("n") },
+                named::test::RowsItem { note: None }
+            ]
+        }
         .render(),
         "[n][]"
     );
@@ -175,9 +236,9 @@ fn presence_rather_than_contents_decides_truthiness() {
     mod template {
         typed_handlebars::str!("test", r#"{{#if note}}yes{{else}}no{{/if}}"#);
     }
-    assert_eq!(template::test(Some("")).render(), "yes");
-    assert_eq!(template::test(Some(0)).render(), "yes");
-    assert_eq!(template::test(None::<&str>).render(), "no");
+    assert_eq!(template::test::Vars { note: Some("") }.render(), "yes");
+    assert_eq!(template::test::Vars { note: Some(0) }.render(), "yes");
+    assert_eq!(template::test::Vars { note: None::<&str> }.render(), "no");
 }
 
 /// Absent means null and undefined, and nothing else. `false` and `0` are values, and handlebars.js
@@ -187,7 +248,14 @@ fn false_and_zero_are_written_not_skipped() {
     mod template {
         typed_handlebars::str!("test", r#"{{ flag }}/{{ count }}"#);
     }
-    assert_eq!(template::test(false, 0).render(), "false/0");
+    assert_eq!(
+        template::test::Vars {
+            flag: false,
+            count: 0
+        }
+        .render(),
+        "false/0"
+    );
 }
 
 #[test]
@@ -197,16 +265,13 @@ fn a_builder_takes_an_option_like_any_other_value() {
     }
     let absent: Option<String> = None;
     assert_eq!(
-        template::test::Builder::new().id(7).note(absent).render(),
+        template::test::builder().id(7).note(absent).render(),
         "<td>7</td>"
     );
     assert_eq!(
-        template::test::Builder::new()
-            .id(7)
-            .note(Some("n"))
-            .render(),
+        template::test::builder().id(7).note(Some("n")).render(),
         "<td>7n</td>"
     );
     // A variable left out entirely is absent in the same way.
-    assert_eq!(template::test::Builder::new().id(7).render(), "<td>7</td>");
+    assert_eq!(template::test::builder().id(7).render(), "<td>7</td>");
 }

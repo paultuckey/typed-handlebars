@@ -9,10 +9,13 @@ struct Heading {
     _text: String,
 }
 
-// Not `.render()` — see the note in `tests/ui.rs`: a method-resolution error quotes `Display` out
-// of the standard library, which only renders where `rust-src` is installed.
+// The bounds live on `render`, so it takes rendering to reach them: a `Vars` holding anything at
+// all is a well-formed value, and only writing it out asks whether it can be written.
 fn main() {
-    let _ = template::page(Heading {
-        _text: "Dub".into(),
-    });
+    let _ = template::page::Vars {
+        title: Heading {
+            _text: "Dub".into(),
+        },
+    }
+    .render();
 }

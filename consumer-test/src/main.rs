@@ -19,7 +19,11 @@ mod templates {
 /// The README example, unchanged.
 fn get_html() -> String {
     // templates::button is automatically generated
-    templates::button(42, "Save").render()
+    templates::button::Vars {
+        btn_id: 42,
+        btn_name: "Save",
+    }
+    .render()
 }
 
 /// Checks the generated code against what the template says it should produce.
@@ -28,19 +32,23 @@ fn main() {
     assert_eq!(
         html,
         "<button id=\"btn42\" class=\"btn btn-light\">\n    Save\n</button>\n",
-        "positional call"
+        "struct literal"
     );
 
     // The builder is the other documented entry point, so it is covered here too.
-    let built = templates::button::Builder::new()
+    let built = templates::button::builder()
         .btn_name("Save")
         .btn_id(42)
         .render();
-    assert_eq!(built, html, "builder matches the positional call");
+    assert_eq!(built, html, "builder matches the struct literal");
 
     // Escaping is a consumer-visible promise, so assert it from out here rather than only inside
     // the crate's own tests.
-    let escaped = templates::button(1, "<script>&").render();
+    let escaped = templates::button::Vars {
+        btn_id: 1,
+        btn_name: "<script>&",
+    }
+    .render();
     assert!(
         escaped.contains("&lt;script&gt;&amp;"),
         "`{{{{ }}}}` escapes: {escaped}"

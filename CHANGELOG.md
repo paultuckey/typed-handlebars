@@ -11,23 +11,76 @@ version being released. See [docs/Release.md](docs/Release.md).
 
 ### Changed
 
-- **A generated type can be named in your own signatures.** Marker parameters are now declared after
-  every value and default to `ViaDisplay`, so `Template<i64, ViaDisplay, bool, &String, ViaDisplay>`
-  is written `Template<i64, bool, &String>`. Markers were interleaved with values, which meant naming
-  a generated type at all meant spelling parameters that exist only for inference — so an application
-  could not write `fn todo_item(&Todo) -> todo::Template<…>` or `impl From<&Todo> for todo::Template<…>`,
-  and had to repeat the wiring at every call site or erase the type behind `impl Display`, which only
-  works when rendering is the last step. Rendering, the builder, and what a template can express are
-  unchanged; error messages also drop the markers, since rustc elides defaulted parameters when it
-  prints a type.
+- **A template is wired up by writing its variables as a struct literal.** Each template's module
+  now holds a `Vars` — every variable it uses, named — which is a plain struct you write directly:
 
-  An `Option` leaf still names its marker — `ViaOption` is not the default — and because a default
-  can only be elided from the right, every marker before it has to be spelled too:
-  `Template<&str, Option<u32>, ViaDisplay, ViaOption>`. Templates with no `Option` leaves elide all
-  of them.
+  ```rust
+  templates::button::Vars { btn_id: 42, btn_name: "Save" }.render()
+  ```
 
-  Breaking for anyone who spells a generated type's parameters today; call sites that let inference
-  do the work are unaffected.
+  This replaces the positional function, which was the one wiring path where a mistake could not be
+  caught: arguments went in "the order the template first mentions them", so reordering the markup
+  reordered the arguments, and two variables of the same type swapped with no compile error. That is
+  an edit a template author makes without knowing Rust is downstream. `Vars` is checked by the
+  compiler's own diagnostics — `E0560` names a misspelled field and suggests the right one, `E0063`
+  names a forgotten one, `E0062` catches a repeat — and, being exhaustive, a variable *added* to a
+  `.hbs` now breaks every call site instead of quietly rendering as nothing.
+
+  It is also much closer to Handlebars itself, where a template is called with one object: the
+  context. Nothing in Handlebars has ever had a concept of variables in source order.
+
+- **The builder is reached through `builder()`.** `templates::button::Builder::new()` becomes
+  `templates::button::builder()`, and a nested type's builder moves from `RowsItemBuilder::new()` to
+  `RowsItem::builder()`. The builder is unchanged otherwise, and is now the answer to "I do not have
+  every variable" — a struct literal cannot leave a field out, so this is the form that expresses
+  what an undefined variable does in Handlebars.
+
+- **Generated types carry no marker parameters.** `Template<i64, ViaDisplay, bool, &String, ViaDisplay>`
+  is now `Vars<i64, bool, &String>`: one parameter per field and nothing else. The `Render` markers
+  that say *how* a value is written moved onto `render`/`render_to` as method-level generics, which
+  also removes the `PhantomData` that held them — and that is what lets the struct be written as a
+  literal at all. An `Option` no longer needs its marker spelled, so the rule that every marker
+  before it had to be spelled too is gone with it.
+
+  A list's item parameters likewise stop threading up into the parent, since an item type is named
+  only in an `AsRef` bound: `deep::RowsItem<&str, Vec<deep::RowsItemCellsItem<i32>>>` has two
+  parameters, not three.
+
+### Fixed
+
+- **A variable may be called `builder`, `vars`, or anything else the generator also names.**
+  `{{ builder.name }}` is ordinary Handlebars, but it camel-cases onto a type the module generates,
+  and the result was `E0428: the name Builder is defined multiple times` — a wall of Rust errors
+  against a template that is not wrong about anything, which is precisely the error a template
+  author cannot read. Generated type names are now handed out in template order, and one that finds
+  its name taken takes a trailing underscore instead, the same escape a Rust keyword gets. The
+  module's own `Vars` and `Builder` are reserved ahead of everything, so they always mean what a
+  caller expects.
+
+  This also covers two variables colliding with each other — `{{ rows_item.x }}` beside
+  `{{#each rows}}`, or `{{ person_builder.x }}` beside `{{ person.y }}` — since a type and the
+  builder it brings with it are reserved together.
+
+  A template file called `builder.hbs` or `vars.hbs` needed no escape and gets none: the `builder()`
+  function lives inside the template's own module, so `templates::builder::builder()` is not a
+  clash.
+
+### Removed
+
+- **`Display` for template values, and with it zero-copy nesting.** A template value could be passed
+  straight into a parent's `{{{ }}}` and written into the same buffer; markers must be type
+  parameters for `Display::fmt` to be implementable, and they had to leave the type for the struct
+  literal to work. Nest by passing the rendered `String` instead:
+
+  ```rust
+  templates::page::Vars { content: templates::row::Vars { name: "King" }.render() }
+  ```
+
+  This is how handlebars.js composes too — render the fragment, pass the markup in as a variable —
+  and it costs one allocation per nesting site. The paths where that would multiply, `{{#each}}` and
+  `{{> partial}}`, are spliced at compile time and allocate nothing either way.
+
+- **`Template::new` and `RowsItem::new`.** Both were positional; write the struct literal.
 
 ## [0.2.0] — 2026-08-15
 

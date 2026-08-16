@@ -16,12 +16,22 @@ fn if_helper() {
         );
     }
     assert_eq!(
-        template::test(true, "King", "Tubby").render(),
+        template::test::Vars {
+            has_author: true,
+            first_name: "King",
+            last_name: "Tubby"
+        }
+        .render(),
         //language=html
         "<div><h1>King Tubby</h1></div>"
     );
     assert_eq!(
-        template::test(false, "King", "Tubby").render(),
+        template::test::Vars {
+            has_author: false,
+            first_name: "King",
+            last_name: "Tubby"
+        }
+        .render(),
         //language=html
         "<div></div>"
     );
@@ -34,14 +44,26 @@ fn a_variable_can_be_tested_and_printed() {
     mod template {
         typed_handlebars::str!("test", r#"[{{#if title}}{{title}}{{/if}}]"#);
     }
-    assert_eq!(template::test(String::from("Dub")).render(), "[Dub]");
-    assert_eq!(template::test(String::new()).render(), "[]");
-    assert_eq!(template::test("Dub").render(), "[Dub]");
-    assert_eq!(template::test("").render(), "[]");
-    assert_eq!(template::test(7).render(), "[7]");
-    assert_eq!(template::test(0).render(), "[]");
-    assert_eq!(template::test(true).render(), "[true]");
-    assert_eq!(template::test(false).render(), "[]");
+    assert_eq!(
+        template::test::Vars {
+            title: String::from("Dub")
+        }
+        .render(),
+        "[Dub]"
+    );
+    assert_eq!(
+        template::test::Vars {
+            title: String::new()
+        }
+        .render(),
+        "[]"
+    );
+    assert_eq!(template::test::Vars { title: "Dub" }.render(), "[Dub]");
+    assert_eq!(template::test::Vars { title: "" }.render(), "[]");
+    assert_eq!(template::test::Vars { title: 7 }.render(), "[7]");
+    assert_eq!(template::test::Vars { title: 0 }.render(), "[]");
+    assert_eq!(template::test::Vars { title: true }.render(), "[true]");
+    assert_eq!(template::test::Vars { title: false }.render(), "[]");
 }
 
 /// What counts as falsy, following handlebars.js. Mirrored in `reference-ts`.
@@ -51,23 +73,35 @@ fn falsiness_follows_handlebars() {
         typed_handlebars::str!("test", r#"[{{#if value}}yes{{/if}}]"#);
     }
     // Absent and false.
-    assert_eq!(template::test::Builder::new().render(), "[]");
-    assert_eq!(template::test(false).render(), "[]");
-    assert_eq!(template::test(true).render(), "[yes]");
+    assert_eq!(template::test::builder().render(), "[]");
+    assert_eq!(template::test::Vars { value: false }.render(), "[]");
+    assert_eq!(template::test::Vars { value: true }.render(), "[yes]");
     // Empty string and zero.
-    assert_eq!(template::test("").render(), "[]");
-    assert_eq!(template::test("x").render(), "[yes]");
-    assert_eq!(template::test(0).render(), "[]");
-    assert_eq!(template::test(-1).render(), "[yes]");
+    assert_eq!(template::test::Vars { value: "" }.render(), "[]");
+    assert_eq!(template::test::Vars { value: "x" }.render(), "[yes]");
+    assert_eq!(template::test::Vars { value: 0 }.render(), "[]");
+    assert_eq!(template::test::Vars { value: -1 }.render(), "[yes]");
     // Option is present or not, whatever it wraps.
-    assert_eq!(template::test(None::<&str>).render(), "[]");
-    assert_eq!(template::test(Some("")).render(), "[yes]");
+    assert_eq!(
+        template::test::Vars {
+            value: None::<&str>
+        }
+        .render(),
+        "[]"
+    );
+    assert_eq!(template::test::Vars { value: Some("") }.render(), "[yes]");
     // A list is falsy when it has no items.
-    assert_eq!(template::test(Vec::<u8>::new()).render(), "[]");
-    assert_eq!(template::test(vec![1]).render(), "[yes]");
+    assert_eq!(
+        template::test::Vars {
+            value: Vec::<u8>::new()
+        }
+        .render(),
+        "[]"
+    );
+    assert_eq!(template::test::Vars { value: vec![1] }.render(), "[yes]");
     // …including through a reference.
     let rows = vec![1];
-    assert_eq!(template::test(&rows).render(), "[yes]");
+    assert_eq!(template::test::Vars { value: &rows }.render(), "[yes]");
 }
 
 /// A list can be tested and then walked — the same variable serving both.
@@ -81,15 +115,14 @@ fn a_list_can_be_tested_and_iterated() {
         );
     }
     assert_eq!(
-        template::test(vec![template::test::RowsItem::new("King")]).render(),
+        template::test::Vars {
+            rows: vec![template::test::RowsItem { name: "King" }]
+        }
+        .render(),
         //language=html
         "<ul><li>King</li></ul>"
     );
-    assert_eq!(
-        template::test::Builder::new().render(),
-        "",
-        "no rows, no list"
-    );
+    assert_eq!(template::test::builder().render(), "", "no rows, no list");
 }
 
 #[test]
@@ -102,12 +135,12 @@ fn unless_helper() {
         );
     }
     assert_eq!(
-        template::test(false).render(),
+        template::test::Vars { has_author: false }.render(),
         //language=html
         "<div><h1>Unknown</h1></div>"
     );
     assert_eq!(
-        template::test(true).render(),
+        template::test::Vars { has_author: true }.render(),
         //language=html
         "<div></div>"
     );
@@ -119,8 +152,8 @@ fn unless_else() {
     mod template {
         typed_handlebars::str!("test", r#"{{#unless a}}no{{else}}yes{{/unless}}"#);
     }
-    assert_eq!(template::test(false).render(), "no");
-    assert_eq!(template::test(true).render(), "yes");
+    assert_eq!(template::test::Vars { a: false }.render(), "no");
+    assert_eq!(template::test::Vars { a: true }.render(), "yes");
 }
 
 #[test]
@@ -133,12 +166,20 @@ fn if_else_helper() {
         );
     }
     assert_eq!(
-        template::test(true, "King").render(),
+        template::test::Vars {
+            has_author: true,
+            first_name: "King"
+        }
+        .render(),
         //language=html
         r#"<div><h1>King</h1></div>"#
     );
     assert_eq!(
-        template::test(false, "King").render(),
+        template::test::Vars {
+            has_author: false,
+            first_name: "King"
+        }
+        .render(),
         //language=html
         r#"<div><h1>Unknown</h1></div>"#
     );
@@ -155,9 +196,9 @@ fn else_if_chains() {
             r#"{{#if a}}A{{else if b}}B{{else}}C{{/if}}"#
         );
     }
-    assert_eq!(template::test(true, false).render(), "A");
-    assert_eq!(template::test(false, true).render(), "B");
-    assert_eq!(template::test(false, false).render(), "C");
+    assert_eq!(template::test::Vars { a: true, b: false }.render(), "A");
+    assert_eq!(template::test::Vars { a: false, b: true }.render(), "B");
+    assert_eq!(template::test::Vars { a: false, b: false }.render(), "C");
 }
 
 /// A chain of any length still needs exactly one close, and the last `{{else}}` is optional.
@@ -170,8 +211,24 @@ fn else_if_chains_more_than_once() {
             r#"{{#if a}}A{{else if b}}B{{else if c}}C{{else}}D{{/if}}"#
         );
     }
-    assert_eq!(template::test(false, false, true).render(), "C");
-    assert_eq!(template::test(false, false, false).render(), "D");
+    assert_eq!(
+        template::test::Vars {
+            a: false,
+            b: false,
+            c: true
+        }
+        .render(),
+        "C"
+    );
+    assert_eq!(
+        template::test::Vars {
+            a: false,
+            b: false,
+            c: false
+        }
+        .render(),
+        "D"
+    );
 
     mod no_final_else {
         typed_handlebars::str!(
@@ -180,7 +237,10 @@ fn else_if_chains_more_than_once() {
             r#"{{#if a}}A{{else if b}}B{{/if}}"#
         );
     }
-    assert_eq!(no_final_else::test(false, false).render(), "");
+    assert_eq!(
+        no_final_else::test::Vars { a: false, b: false }.render(),
+        ""
+    );
 }
 
 /// The tested variable gets a `Truthy` bound like any other condition, so `{{else if}}` is not
@@ -194,9 +254,16 @@ fn an_else_if_condition_is_truthy_not_bool() {
             r#"{{#if a}}A{{else if name}}[{{name}}]{{else}}C{{/if}}"#
         );
     }
-    assert_eq!(template::test(false, "King").render(), "[King]");
     assert_eq!(
-        template::test(false, "").render(),
+        template::test::Vars {
+            a: false,
+            name: "King"
+        }
+        .render(),
+        "[King]"
+    );
+    assert_eq!(
+        template::test::Vars { a: false, name: "" }.render(),
         "C",
         "empty string is falsy"
     );
@@ -214,9 +281,15 @@ fn a_chained_helper_sets_its_own_sense() {
             r#"{{#unless a}}U{{else if b}}B{{else}}C{{/unless}}"#
         );
     }
-    assert_eq!(inside_unless::test(false, true).render(), "U");
-    assert_eq!(inside_unless::test(true, true).render(), "B");
-    assert_eq!(inside_unless::test(true, false).render(), "C");
+    assert_eq!(
+        inside_unless::test::Vars { a: false, b: true }.render(),
+        "U"
+    );
+    assert_eq!(inside_unless::test::Vars { a: true, b: true }.render(), "B");
+    assert_eq!(
+        inside_unless::test::Vars { a: true, b: false }.render(),
+        "C"
+    );
 
     mod else_unless {
         typed_handlebars::str!(
@@ -225,8 +298,8 @@ fn a_chained_helper_sets_its_own_sense() {
             r#"{{#if a}}A{{else unless b}}B{{else}}C{{/if}}"#
         );
     }
-    assert_eq!(else_unless::test(false, false).render(), "B");
-    assert_eq!(else_unless::test(false, true).render(), "C");
+    assert_eq!(else_unless::test::Vars { a: false, b: false }.render(), "B");
+    assert_eq!(else_unless::test::Vars { a: false, b: true }.render(), "C");
 }
 
 /// The condition resolves in the scope the chain sits in, so a dotted path generates a record
@@ -241,7 +314,11 @@ fn an_else_if_condition_resolves_in_its_own_scope() {
         );
     }
     assert_eq!(
-        dotted::test(false, dotted::test::Person::new("King")).render(),
+        dotted::test::Vars {
+            a: false,
+            person: dotted::test::Person { name: "King" }
+        }
+        .render(),
         "B"
     );
 
@@ -253,11 +330,22 @@ fn an_else_if_condition_resolves_in_its_own_scope() {
         );
     }
     assert_eq!(
-        in_each::test(vec![
-            in_each::test::RowsItem::new(true, false),
-            in_each::test::RowsItem::new(false, true),
-            in_each::test::RowsItem::new(false, false),
-        ])
+        in_each::test::Vars {
+            rows: vec![
+                in_each::test::RowsItem {
+                    hot: true,
+                    warm: false
+                },
+                in_each::test::RowsItem {
+                    hot: false,
+                    warm: true
+                },
+                in_each::test::RowsItem {
+                    hot: false,
+                    warm: false
+                },
+            ]
+        }
         .render(),
         "H;W;C;"
     );
@@ -275,7 +363,7 @@ fn else_may_be_spaced() {
             r#"{{#if a}}A{{ else }}B{{/if}}"#
         );
     }
-    assert_eq!(template::test(false).render(), "B");
+    assert_eq!(template::test::Vars { a: false }.render(), "B");
 
     // The word-boundary check that makes the above work must not swallow variables.
     mod elsewhere {
@@ -285,7 +373,10 @@ fn else_may_be_spaced() {
             r#"[{{ elsewhere }}]"#
         );
     }
-    assert_eq!(elsewhere::test("town").render(), "[town]");
+    assert_eq!(
+        elsewhere::test::Vars { elsewhere: "town" }.render(),
+        "[town]"
+    );
 }
 
 /// Unset means falsy, so a chain reached through the builder behaves as an undefined variable
@@ -299,8 +390,8 @@ fn an_unset_else_if_condition_is_falsy() {
             r#"{{#if a}}A{{else if b}}B{{else}}C{{/if}}"#
         );
     }
-    assert_eq!(template::test::Builder::new().render(), "C");
-    assert_eq!(template::test::Builder::new().b(true).render(), "B");
+    assert_eq!(template::test::builder().render(), "C");
+    assert_eq!(template::test::builder().b(true).render(), "B");
 }
 
 #[test]
@@ -313,7 +404,13 @@ fn with_helper() {
         );
     }
     assert_eq!(
-        template::test(template::test::Author::new("King", "Tubby")).render(),
+        template::test::Vars {
+            author: template::test::Author {
+                first_name: "King",
+                last_name: "Tubby"
+            }
+        }
+        .render(),
         //language=html
         "<div><h1>King Tubby</h1></div>"
     );
@@ -332,7 +429,7 @@ fn with_renders_even_when_the_record_was_never_set() {
         );
     }
     assert_eq!(
-        template::test::Builder::new().render(),
+        template::test::builder().render(),
         //language=html
         "<div><h1></h1></div>",
         "handlebars.js would render <div></div> here"

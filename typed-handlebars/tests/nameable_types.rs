@@ -1,13 +1,13 @@
 //! Naming a generated type in your own signatures.
 //!
-//! A written value is bound by `Render<K>`, and `K` is a marker filled in by inference. It has to be
-//! a parameter of the generated type, because the type's `where` clause names it — so it lands in
-//! the public signature of a type nobody was ever meant to spell.
+//! Most call sites let inference produce the type and never name it. Once an application has more
+//! than one call site for the same template it usually wants the mapping from its own types in one
+//! place — which means writing the type down.
 //!
-//! Markers are declared last and default to `ViaDisplay`, so the common case elides them entirely:
-//! `Template<i64, bool, &String>` rather than `Template<i64, ViaDisplay, bool, &String, ViaDisplay>`.
-//! That is what lets an application put the mapping from its own types to a template's in one place,
-//! instead of repeating it at every call site.
+//! A type's parameters are exactly its values: one per field, in template order. The `Render`
+//! markers that decide how a value is written live on `render` as method-level generics, so they
+//! never appear here — not even for an `Option`, which is the case that used to force every marker
+//! before it to be spelled too.
 
 /// The application's own type, which the template knows nothing about.
 struct Todo {
@@ -23,9 +23,13 @@ typed_handlebars::str!(
 );
 
 /// The wiring lives in one function rather than at every call site. Spelling the return type is the
-/// whole point: before markers were defaulted, this signature could not be written at all.
-fn todo_item(todo: &Todo) -> todo::Template<i64, bool, &String> {
-    todo::Template::new(todo.id, todo.done, &todo.title)
+/// whole point, and it is exactly the three values the template uses.
+fn todo_item(todo: &Todo) -> todo::Vars<i64, bool, &String> {
+    todo::Vars {
+        id: todo.id,
+        done: todo.done,
+        title: &todo.title,
+    }
 }
 
 #[test]
@@ -44,9 +48,13 @@ fn a_helper_can_name_the_generated_type() {
 
 /// The same mapping as a conversion, which is the form an application reaches for once more than one
 /// template wants it.
-impl<'a> From<&'a Todo> for todo::Template<i64, bool, &'a String> {
+impl<'a> From<&'a Todo> for todo::Vars<i64, bool, &'a String> {
     fn from(todo: &'a Todo) -> Self {
-        todo::Template::new(todo.id, todo.done, &todo.title)
+        todo::Vars {
+            id: todo.id,
+            done: todo.done,
+            title: &todo.title,
+        }
     }
 }
 
@@ -57,7 +65,7 @@ fn the_generated_type_can_be_a_conversion_target() {
         done: false,
         title: "Later".into(),
     };
-    let item: todo::Template<i64, bool, &String> = (&todo).into();
+    let item: todo::Vars<i64, bool, &String> = (&todo).into();
     assert_eq!(item.render(), r#"<div id="todo-1">Later</div>"#);
 }
 
@@ -75,7 +83,7 @@ fn an_item_type_is_nameable_too() {
     fn rows(todos: &[Todo]) -> Vec<list::TodosItem<&String>> {
         todos
             .iter()
-            .map(|todo| list::TodosItem::new(&todo.title))
+            .map(|todo| list::TodosItem { title: &todo.title })
             .collect()
     }
 
@@ -92,18 +100,21 @@ fn an_item_type_is_nameable_too() {
         },
     ];
     assert_eq!(
-        list(rows(&todos)).render(),
+        list::Vars {
+            todos: rows(&todos)
+        }
+        .render(),
         //language=html
         "<ul><li>One</li><li>Two</li></ul>"
     );
 }
 
-/// A generated value can be held rather than rendered on the spot — which the `impl Display` escape
-/// hatch could not do, because erasing the type means the value can only be written, never handled.
+/// A generated value can be held rather than rendered on the spot, which is what makes it different
+/// from a rendered `String`: it is still the data, and it can be rendered more than once.
 #[test]
 fn a_generated_value_can_be_stored() {
     struct Page<'a> {
-        rows: Vec<todo::Template<i64, bool, &'a String>>,
+        rows: Vec<todo::Vars<i64, bool, &'a String>>,
     }
 
     let todos = [
@@ -127,23 +138,33 @@ fn a_generated_value_can_be_stored() {
     );
 }
 
-/// A nested type declares its own parameters, and its parent names it — so the two have to agree on
-/// the order after markers move to the back.
-///
-/// The case that catches a mistake is a record whose *rendered* field comes before a field that is
-/// only tested: in template order the marker sits in the middle, so parent and child would disagree
-/// if either emitted the parameters as they were minted rather than as declared.
+/// A nested record declares its own parameters and its parent names it in a field, so the two have
+/// to agree on the order.
 #[test]
 fn a_parent_and_a_nested_type_agree_on_order() {
     typed_handlebars::str!("rec", r#"{{person.name}}{{#if person.active}}[on]{{/if}}"#);
 
-    assert_eq!(rec(rec::Person::new("King", true)).render(), "King[on]");
-    let person: rec::Person<&str, bool> = rec::Person::new("King", false);
-    assert_eq!(rec(person).render(), "King");
+    assert_eq!(
+        rec::Vars {
+            person: rec::Person {
+                name: "King",
+                active: true
+            }
+        }
+        .render(),
+        "King[on]"
+    );
+    let person: rec::Person<&str, bool> = rec::Person {
+        name: "King",
+        active: false,
+    };
+    assert_eq!(rec::Vars { person }.render(), "King");
 }
 
-/// The same agreement two levels down, where a list's item type is named only in an `AsRef` bound
-/// and its parameters are threaded up into the parent.
+/// A list is where the parameters stop threading up: an item type is named only in an `AsRef`
+/// bound, never in a field, so the parent keeps its container parameter opaque and the item's own
+/// parameters are recovered on `render`. That is what keeps every type free of `PhantomData`, and
+/// so writeable as a literal.
 #[test]
 fn nesting_two_deep_stays_nameable() {
     typed_handlebars::str!(
@@ -153,46 +174,50 @@ fn nesting_two_deep_stays_nameable() {
     );
 
     assert_eq!(
-        deep(vec![
-            deep::RowsItem::new("a", vec![deep::RowsItemCellsItem::new(1)]),
-            deep::RowsItem::new("b", vec![deep::RowsItemCellsItem::new(2)]),
-        ])
+        deep::Vars {
+            rows: vec![
+                deep::RowsItem {
+                    label: "a",
+                    cells: vec![deep::RowsItemCellsItem { value: 1 }]
+                },
+                deep::RowsItem {
+                    label: "b",
+                    cells: vec![deep::RowsItemCellsItem { value: 2 }]
+                },
+            ]
+        }
         .render(),
         "a<1>b<2>"
     );
 
-    // A parent carries its whole subtree's value parameters — the label, the cell value and the
-    // cell container — but still none of the four markers.
-    let _: deep::RowsItem<&str, i32, Vec<deep::RowsItemCellsItem<i32>>> =
-        deep::RowsItem::new("a", vec![deep::RowsItemCellsItem::new(1)]);
+    // Two parameters, not three: the label and the cell container. The cell's own value parameter
+    // belongs to the bound, so it stays inside the container type rather than climbing out.
+    let _: deep::RowsItem<&str, Vec<deep::RowsItemCellsItem<i32>>> = deep::RowsItem {
+        label: "a",
+        cells: vec![deep::RowsItemCellsItem { value: 1 }],
+    };
 }
 
 /// An unset field falls back to a concrete empty type per parameter, and that list is parallel to
-/// the parameters — so it is permuted along with them. If the two came apart, a builder that leaves
-/// everything unset would stop compiling.
+/// the parameters. If the two came apart, a builder that leaves everything unset would stop
+/// compiling.
 #[test]
 fn unset_fields_still_resolve() {
     typed_handlebars::str!("unset", r#"{{a}}{{#each rows}}{{b}}{{/each}}{{c.d}}"#);
 
-    assert_eq!(unset::Builder::new().render(), "");
-    assert_eq!(unset::Builder::new().a("x").render(), "x");
+    assert_eq!(unset::builder().render(), "");
+    assert_eq!(unset::builder().a("x").render(), "x");
 }
 
-/// `Option` is the one value that does not take the `ViaDisplay` route, so naming a type that holds
-/// one means naming its marker — and, because a default can only be elided from the right, every
-/// marker before it as well.
-///
-/// Worth pinning: it is the case where the defaults do not hide the markers, and the reason the
-/// win is "most templates" rather than "all of them".
+/// `Option` does not take the `ViaDisplay` route, and used to be the one case where naming a type
+/// meant naming its marker — and, a default only being elidable from the right, every marker before
+/// it as well. With the markers on `render` instead, the signature is just the values.
 #[test]
-fn an_option_names_its_marker() {
+fn an_option_needs_no_marker() {
     typed_handlebars::str!("maybe", r#"[{{a}}][{{b}}]"#);
-    use typed_handlebars::{ViaDisplay, ViaOption};
 
-    // `a` renders through `Display` and `b` through `Option`, so `a`'s marker has to be spelled
-    // even though it is exactly the default.
-    fn pair(b: Option<u32>) -> maybe::Template<&'static str, Option<u32>, ViaDisplay, ViaOption> {
-        maybe::Template::new("x", b)
+    fn pair(b: Option<u32>) -> maybe::Vars<&'static str, Option<u32>> {
+        maybe::Vars { a: "x", b }
     }
 
     assert_eq!(pair(Some(1)).render(), "[x][1]");

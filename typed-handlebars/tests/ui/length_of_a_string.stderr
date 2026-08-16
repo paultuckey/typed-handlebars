@@ -1,10 +1,8 @@
 error[E0277]: `String` has no `.length` for a template to count
-  --> tests/ui/length_of_a_string.rs:14:28
+  --> tests/ui/length_of_a_string.rs:13:6
    |
-14 |     let _ = template::page(String::from("Dub"));
-   |             -------------- ^^^^^^^^^^^^^^^^^^^ this value is not a list
-   |             |
-   |             required by a bound introduced by this call
+13 |     .render();
+   |      ^^^^^^ this value is not a list
    |
    = help: the trait `Length` is not implemented for `String`
    = note: `{{ x.length }}` counts a list — a `Vec`, a slice or an array. A `String` has no `.length` here: JS counts UTF-16 code units and Rust counts bytes or `char`s, so any answer would silently disagree with handlebars.js
@@ -15,31 +13,9 @@ error[E0277]: `String` has no `.length` for a template to count
              [T; N]
              [T]
              typed_handlebars::Empty
-note: required by a bound in `page`
+note: required by a bound in `page::Vars::<T0>::render`
   --> tests/ui/length_of_a_string.rs:5:5
    |
  5 |     typed_handlebars::str!("page", r#"<h1>{{ title.length }}</h1>"#);
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `page`
-   = note: this error originates in the macro `typed_handlebars::str` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0277]: `String` has no `.length` for a template to count
-  --> tests/ui/length_of_a_string.rs:14:13
-   |
-14 |     let _ = template::page(String::from("Dub"));
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this value is not a list
-   |
-   = help: the trait `Length` is not implemented for `String`
-   = note: `{{ x.length }}` counts a list — a `Vec`, a slice or an array. A `String` has no `.length` here: JS counts UTF-16 code units and Rust counts bytes or `char`s, so any answer would silently disagree with handlebars.js
-   = help: the following other types implement trait `Length`:
-             &T
-             Absent<T>
-             Vec<T>
-             [T; N]
-             [T]
-             typed_handlebars::Empty
-note: required by a bound in `Template`
-  --> tests/ui/length_of_a_string.rs:5:5
-   |
- 5 |     typed_handlebars::str!("page", r#"<h1>{{ title.length }}</h1>"#);
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Template`
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Vars::<T0>::render`
    = note: this error originates in the macro `typed_handlebars::str` (in Nightly builds, run with -Z macro-backtrace for more info)
