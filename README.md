@@ -40,23 +40,17 @@ mod templates {
     typed_handlebars::directory!("templates/");
 }
 fn get_html() -> String {
-    // templates::button is automatically generated 
-    templates::button(42, "Save").render()
+    // templates::button is automatically generated
+    templates::button::Builder::new()
+        .btn_id(42)
+        .btn_name("Save")
+        .render()
 }
 ```
 
-### Optionally, a builder
-
-Every template also gets a builder. It is entirely optional — the function above is the normal way to
-call a template — but it names each variable, so nothing depends on argument order and your IDE
-offers the names rather than you retyping them:
-
-```rust
-templates::button::Builder::new()
-    .btn_id(42)
-    .btn_name("Save")
-    .render()
-```
+The generated builder names each variable, so nothing depends on argument order, your IDE offers the names
+rather than you retyping them, and a variable renamed in the `.hbs` becomes a compile error at the
+setter rather than a silent change in the output.
 
 You only set what you have. Anything you leave out renders as empty, a list with no items, or a false
 condition, exactly as an undefined variable does in Handlebars:
@@ -64,6 +58,20 @@ condition, exactly as an undefined variable does in Handlebars:
 ```rust
 templates::button::Builder::new().btn_id(42).render()   // btn_name renders as nothing
 ```
+
+### Also, a positional function
+
+Every template is a function too, taking its variables in the order the template first mentions
+them:
+
+```rust
+templates::button(42, "Save").render()
+```
+
+It is shorter, and it is the whole of what nested types like `RowsItem::new(…)` offer, so you will
+meet it. But the order is the template's, not yours: reordering the markup reorders the arguments,
+and two variables of the same type swap without a compile error. Reach for the builder wherever a
+call site is worth protecting.
 
 ## Goals
 
@@ -152,8 +160,8 @@ Each template gets a module of its own, named after the file, holding the types 
 directory layout becomes the module layout:
 
 ```
-templates/page.hbs          templates::page(…)                 templates::page::RowsItem
-templates/admin/row.hbs     templates::admin::row(…)           templates::admin::row::Builder
+templates/page.hbs          templates::page::Builder           templates::page::RowsItem
+templates/admin/row.hbs     templates::admin::row::Builder     templates::admin::row(…)
 ```
 
 So two templates called `row` in different directories are two different modules, rather than a
