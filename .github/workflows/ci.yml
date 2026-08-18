@@ -15,7 +15,7 @@ jobs:
     name: Format and lints
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Check formatting
         run: cargo fmt --all --check
@@ -36,7 +36,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Build
         run: cargo build --verbose
@@ -63,7 +63,7 @@ jobs:
     name: Fresh consumer
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Build and run the README example as an outside crate
         working-directory: consumer-test
         run: cargo run --verbose
@@ -73,7 +73,7 @@ jobs:
     name: handlebars.js parity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7 # we specifically want to use default node version
       # `npm install`, not `npm ci`: `package-lock.json` is deliberately not committed, so this floats
       # to the current handlebars.js. If a new JS release might change what the reference
@@ -91,7 +91,7 @@ jobs:
     name: MSRV (1.88)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install the MSRV toolchain
         run: rustup toolchain install 1.88 --profile minimal
       # Keyed by hand: the action derives its key from the *default* toolchain, which is stable
