@@ -17,7 +17,7 @@ categories.workspace = true
 proc-macro = true
 
 [dependencies]
-syn = { version = "2.0.111", features = ["full"] }
+syn = { version = "3.0.3", features = ["full"] }
 quote = "1.0.42"
 walkdir = "2.5.0"
 regex = "1.12.2"
