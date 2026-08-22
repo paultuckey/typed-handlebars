@@ -166,6 +166,8 @@ pub struct Rust {
     pub code: String,
     /// Top level variables
     pub top_level_vars: HashSet<String>,
+    /// Whether the template called a helper, and so needs the frame passed to `render`.
+    pub uses_frame: bool,
 }
 
 /// Whether a written value goes through the runtime's HTML escaper.
@@ -186,6 +188,7 @@ impl Rust {
         Self {
             code: String::new(),
             top_level_vars: HashSet::new(),
+            uses_frame: false,
         }
     }
 }
@@ -270,6 +273,47 @@ pub struct Compile<'a> {
     pub block_map: &'a BlockMap,
     /// How generated code reaches the runtime crate.
     pub runtime: &'a str,
+}
+
+/// The local the generated `render` binds the frame to.
+///
+/// It cannot collide with anything from a template: a template's own variables are reached as
+/// `self.…` or through a depth-suffixed loop local, never as a bare name.
+pub const FRAME_VAR: &str = "cx";
+
+/// Writes `text` as a Rust string literal.
+///
+/// Handlebars escapes the quote that delimits a literal, so `\"` inside `"…"` is the quote itself
+/// rather than two characters. The escape is unwound here and rewritten for Rust, which spells
+/// some of the same characters differently.
+fn push_string_literal(buffer: &mut String, text: &str) {
+    buffer.push('"');
+    let mut chars = text.chars();
+    while let Some(character) = chars.next() {
+        match character {
+            '\\' => match chars.next() {
+                Some(escaped @ ('"' | '\'' | '\\')) => push_escaped(buffer, escaped),
+                Some(other) => {
+                    push_escaped(buffer, '\\');
+                    push_escaped(buffer, other);
+                }
+                None => push_escaped(buffer, '\\'),
+            },
+            character => push_escaped(buffer, character),
+        }
+    }
+    buffer.push('"');
+}
+
+fn push_escaped(buffer: &mut String, character: char) {
+    match character {
+        '"' => buffer.push_str("\\\""),
+        '\\' => buffer.push_str("\\\\"),
+        '\n' => buffer.push_str("\\n"),
+        '\r' => buffer.push_str("\\r"),
+        '\t' => buffer.push_str("\\t"),
+        character => buffer.push(character),
+    }
 }
 
 /// Writes a dotted template path as Rust field access, one sanitised segment at a time.
@@ -482,9 +526,12 @@ impl<'a> Compile<'a> {
                 let (name, scope) = self.find_scope(var.value)?;
                 self.write_place(name, scope, rust)?;
             }
-            TokenType::Literal => {
-                rust.code.push_str(var.value);
-            }
+            // Written as-is where the template already spelled Rust — a number — and rewritten
+            // where it did not: `{{ 'x' }}` is a string in Handlebars and a char in Rust.
+            TokenType::Literal => match var.quoted_text() {
+                Some(text) => push_string_literal(&mut rust.code, text),
+                None => rust.code.push_str(var.value),
+            },
             TokenType::SubExpression(raw) => {
                 self.resolve_sub_expression(raw, var.value, rust)?;
             }
@@ -576,29 +623,12 @@ impl<'a> Compile<'a> {
         Ok(())
     }
 
-    /// Resolves a lookup expression
-    fn resolve_lookup(
-        &self,
-        expression: &Expression<'a>,
-        prefix: &str,
-        postfix: char,
-        args: Token<'a>,
-        rust: &mut Rust,
-    ) -> Result<()> {
-        self.write_var(expression, rust, &args)?;
-        rust.code.push_str(prefix);
-        self.write_var(
-            expression,
-            rust,
-            &args
-                .next()?
-                .ok_or(ParseError::new("lookup expects 2 arguments", expression))?,
-        )?;
-        rust.code.push(postfix);
-        Ok(())
-    }
-
-    /// Resolves a helper expression
+    /// Resolves a helper call — `{{ t "Save" }}` — into a method call on the frame.
+    ///
+    /// The frame is the value handed to `render` alongside the data, and a helper is one of its
+    /// methods. Nothing here checks that the method exists: the generated call does that, and the
+    /// compiler's own "no method named `t` found for struct `Ctx`" names both the helper and the
+    /// frame better than a guess made here could.
     fn resolve_helper(
         &self,
         expression: &Expression<'a>,
@@ -606,26 +636,55 @@ impl<'a> Compile<'a> {
         mut args: Token<'a>,
         rust: &mut Rust,
     ) -> Result<()> {
-        match name.value {
-            "lookup" => self.resolve_lookup(expression, "[", ']', args, rust),
-            "try_lookup" => self.resolve_lookup(expression, ".get(", ')', args, rust),
-            name => {
-                rust.code.push_str(name);
-                rust.code.push('(');
-                self.write_var(expression, rust, &args)?;
-                loop {
-                    args = match args.next()? {
-                        Some(token) => {
-                            rust.code.push_str(", ");
-                            self.write_var(expression, rust, &token)?;
-                            token
-                        }
-                        None => {
-                            rust.code.push(')');
-                            return Ok(());
-                        }
-                    };
+        rust.uses_frame = true;
+        rust.code.push_str(FRAME_VAR);
+        rust.code.push('.');
+        rust.code.push_str(&crate::sanitise_ident(name.value));
+        rust.code.push('(');
+        self.write_argument(expression, rust, &args)?;
+        loop {
+            args = match args.next()? {
+                Some(token) => {
+                    rust.code.push_str(", ");
+                    self.write_argument(expression, rust, &token)?;
+                    token
                 }
+                None => {
+                    rust.code.push(')');
+                    return Ok(());
+                }
+            };
+        }
+    }
+
+    /// Writes one helper argument, which always reaches the helper as a `&str`.
+    ///
+    /// A literal is handed over as the text the template spelled, so `{{ money 123 }}` passes
+    /// `"123"`. Anything else is a reference to the caller's data, of whatever type they gave it,
+    /// so it goes through the same `Render` path a `{{{ … }}}` would take and arrives as the text
+    /// that would have been written.
+    fn write_argument(
+        &self,
+        expression: &Expression<'a>,
+        rust: &mut Rust,
+        arg: &Token<'a>,
+    ) -> Result<()> {
+        // A number is a literal here and a path in `{{ 42 }}`, which is the distinction
+        // handlebars.js draws: position decides, not spelling.
+        match arg.token_type {
+            TokenType::Literal => {
+                push_string_literal(&mut rust.code, arg.literal_text());
+                Ok(())
+            }
+            TokenType::Variable if arg.numeric() => {
+                push_string_literal(&mut rust.code, arg.value);
+                Ok(())
+            }
+            _ => {
+                rust.code.push_str("&(");
+                self.write_var(expression, rust, arg)?;
+                rust.code.push_str(").shown().to_string()");
+                Ok(())
             }
         }
     }

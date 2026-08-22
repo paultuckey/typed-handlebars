@@ -9,6 +9,54 @@ version being released. See [docs/Release.md](docs/Release.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Helpers: `{{ t "Save" }}` calls a method on a frame you name.** Handlebars passes a template two
+  things — the data, and a *data frame* of ambient state supplied at render time (`options.data` in
+  handlebars.js, which is where a translation helper reads its locale from). `Vars` was already the
+  data; `register_helper!` now names the frame, and a helper is one of its methods:
+
+  ```rust
+  impl Ctx {
+      pub fn t(&self, key: &str) -> String { self.locale.lookup(key) }
+  }
+
+  mod templates {
+      typed_handlebars::register_helper!(crate::Ctx);
+      typed_handlebars::directory!("templates/");
+  }
+
+  templates::page::Vars { .. }.render(&ctx)
+  ```
+
+  This replaces the previous position, which was that a helper "would be Rust code inside a
+  template". `{{ t "Save" }}` is not Rust — the argument is a string literal — and a designer who
+  wants a translated button had otherwise to ask a Rust developer to invent a `t_save` variable and
+  wire it up. Method resolution is what checks the name, so a helper that does not exist is
+  `no method named 't' found for struct 'Ctx'` rather than something that renders wrongly.
+
+  Only a template that calls a helper takes the frame, so adding one to a template — or to a partial
+  it includes — is what makes its call sites ask for it, exactly as adding a variable does.
+
+  Every argument arrives as a `&str`: a quoted string or a number is the text the template spelled,
+  so `{{ money 123 }}` calls `money("123")`, and anything else is a variable written out the way
+  `{{{ … }}}` would write it. Arity is the method's business. The result is escaped by `{{ }}` and
+  not by `{{{ }}}`, matching handlebars.js unless a JS shim returns a `SafeString`.
+
+- **Single-quoted string literals.** `{{ t 'Save' }}` is what handlebars.js accepts alongside
+  `{{ t "Save" }}`, and a designer has no reason to know which was easier to lex.
+
+### Changed
+
+- **A hash argument is now rejected by name.** `{{ t "Hello" name=user }}` is how handlebars.js
+  passes named arguments and is not supported yet; it previously lexed as a variable *called*
+  `name=user`, generating a field that compiled, asked the caller for something meaningless and
+  rendered the wrong thing.
+
+- **`lookup` and `log` are reserved**, alongside the block names, so the same spelling cannot mean
+  a builtin in one template and a frame method in another. `{{lookup a b}}` was already unsupported;
+  it now says why rather than reaching code generation.
+
 ## [0.3.0] — 2026-08-16
 
 ### Changed

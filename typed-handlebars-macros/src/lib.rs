@@ -140,10 +140,20 @@ fn describe(error: &ParseError, assembly: &Assembly) -> String {
     format!("{}{}", position, error)
 }
 
-fn generate_code_for_content(
-    name: &str,
-    assembly: &Assembly,
-) -> Result<proc_macro2::TokenStream, String> {
+/// The name `register_helper!` gives the frame type, and generated code reaches it by.
+///
+/// Fixed rather than configurable because two macro invocations cannot see each other: `str!` has
+/// already decided what to emit by the time `register_helper!` expands, so the only thing the two
+/// can agree on is a name that Rust's own resolution closes over afterwards.
+pub(crate) const FRAME_TYPE: &str = "Frame";
+
+/// Generated code, plus whether the template called a helper.
+struct Generated {
+    tokens: proc_macro2::TokenStream,
+    uses_frame: bool,
+}
+
+fn generate_code_for_content(name: &str, assembly: &Assembly) -> Result<Generated, String> {
     let content = &assembly.text;
     let template_name = sanitise_ident(name);
     // Everything a template generates lives in a module of its own, so a template with a `rows`
@@ -157,7 +167,6 @@ fn generate_code_for_content(
     // The template states its own contract; read it before generating anything.
     let context = context::build(content).map_err(|e| describe(&e, assembly))?;
     let runtime = runtime_crate();
-    let types = codegen::generate(&context, &runtime);
 
     let options = Options {
         root_var_name: Some("self"),
@@ -168,6 +177,27 @@ fn generate_code_for_content(
     let rust_code = compiler
         .compile(content)
         .map_err(|e| describe(&e, assembly))?;
+
+    // A template that calls a helper needs the frame — the type `register_helper!` named — passed
+    // in beside the data, and one that calls none never mentions it. The asymmetry is the point:
+    // adding `{{ t "…" }}` to a template stops its call sites compiling until they say which frame
+    // to render against, exactly as adding a variable does. Only compiling the template says which
+    // it is, so the types are generated after that rather than before.
+    let uses_frame = rust_code.uses_frame;
+    let frame = if uses_frame {
+        let frame_var = format_ident!("{}", crate::parser::compiler::FRAME_VAR);
+        let frame_type = format_ident!("{}", FRAME_TYPE);
+        codegen::FrameTokens {
+            param: quote! { #frame_var: &super::#frame_type },
+            argument: quote! { #frame_var },
+        }
+    } else {
+        codegen::FrameTokens::default()
+    };
+    let frame_param = &frame.param;
+    let frame_argument = &frame.argument;
+
+    let types = codegen::generate(&context, &runtime, &frame);
     let render_body: proc_macro2::TokenStream = rust_code.code.parse().map_err(|_| {
         // Reaching here means the parser accepted something code generation could not express.
         // That is a bug in this crate rather than in the template, so say so.
@@ -245,6 +275,7 @@ fn generate_code_for_content(
             pub fn render_to<#(#method_params),*>(
                 &self,
                 f: &mut impl ::core::fmt::Write,
+                #frame_param
             ) -> ::core::fmt::Result
             #where_clause
             {
@@ -260,25 +291,25 @@ fn generate_code_for_content(
             }
 
             /// Renders the template to a new `String`.
-            pub fn render<#(#method_params),*>(&self) -> ::std::string::String
+            pub fn render<#(#method_params),*>(&self, #frame_param) -> ::std::string::String
             #where_clause
             {
                 let mut out = ::std::string::String::new();
                 // Writing into a `String` cannot fail, so there is no error to propagate.
-                let _ = self.render_to(&mut out);
+                let _ = self.render_to(&mut out, #frame_argument);
                 out
             }
         }
         }
     };
 
-    Ok(module)
+    Ok(Generated {
+        tokens: module,
+        uses_frame,
+    })
 }
 
-fn generate_code_for_file(
-    path: &Path,
-    partials: &Path,
-) -> Result<proc_macro2::TokenStream, String> {
+fn generate_code_for_file(path: &Path, partials: &Path) -> Result<Generated, String> {
     let path_str = path.to_string_lossy();
     let file_stem = match path.file_stem() {
         Some(stem) => stem.to_string_lossy(),
@@ -314,12 +345,15 @@ impl Parse for StrInput {
 struct Tree {
     templates: Vec<proc_macro2::TokenStream>,
     children: std::collections::BTreeMap<String, Tree>,
+    /// Whether anything in this subtree calls a helper, and so needs `Frame` reachable from here.
+    uses_frame: bool,
 }
 
 impl Tree {
-    fn insert(&mut self, branch: &[String], generated: proc_macro2::TokenStream) {
+    fn insert(&mut self, branch: &[String], generated: Generated) {
+        self.uses_frame |= generated.uses_frame;
         match branch.split_first() {
-            None => self.templates.push(generated),
+            None => self.templates.push(generated.tokens),
             Some((head, rest)) => self
                 .children
                 .entry(head.clone())
@@ -334,9 +368,17 @@ impl Tree {
             let ident = format_ident!("{}", crate::sanitise_ident(name));
             let doc = format!("Templates from the `{}` directory.", name);
             let inner = child.emit();
+            // A template reaches the frame as `super::Frame`, so every directory between it and
+            // the module `register_helper!` was invoked in has to pass the name along. Carrying it
+            // one level at a time keeps the templates themselves free of any depth arithmetic.
+            let frame = child.uses_frame.then(|| {
+                let frame_type = format_ident!("{}", FRAME_TYPE);
+                quote! { #[allow(unused_imports)] use super::#frame_type; }
+            });
             quote! {
                 #[doc = #doc]
                 pub mod #ident {
+                    #frame
                     #inner
                 }
             }
@@ -432,7 +474,7 @@ pub fn typed_handlebars_file(input: TokenStream) -> TokenStream {
 
     let partials = path.parent().unwrap_or(Path::new(".")).to_path_buf();
     let expanded = match generate_code_for_file(&path, &partials) {
-        Ok(generated) => generated,
+        Ok(generated) => generated.tokens,
         Err(message) => {
             return syn::Error::new(file_lit.span(), message)
                 .to_compile_error()
@@ -446,13 +488,31 @@ pub fn typed_handlebars_file(input: TokenStream) -> TokenStream {
 // Documented on the re-export in the runtime crate — see `typed_handlebars_directory` above.
 #[allow(missing_docs)]
 #[proc_macro]
+pub fn typed_handlebars_register_helper(input: TokenStream) -> TokenStream {
+    let frame = parse_macro_input!(input as syn::Type);
+    let frame_type = format_ident!("{}", FRAME_TYPE);
+    let doc = "The frame every template in this module renders against — the value passed to \
+               `render` beside the data, and the type a helper call resolves its method on.";
+    // Nothing here checks that the type has the methods the templates call. A proc macro sees
+    // tokens rather than types, so it could not; the generated call is what checks, and rustc's
+    // own "no method named `t` found for struct `Ctx`" names both the helper and the frame.
+    TokenStream::from(quote! {
+        #[doc = #doc]
+        #[allow(dead_code)]
+        pub type #frame_type = #frame;
+    })
+}
+
+// Documented on the re-export in the runtime crate — see `typed_handlebars_directory` above.
+#[allow(missing_docs)]
+#[proc_macro]
 pub fn typed_handlebars_str(input: TokenStream) -> TokenStream {
     let StrInput { name, content } = parse_macro_input!(input as StrInput);
     // A `str!` template has no directory, so it has nowhere to resolve partials from.
     let assembled = Assembly::build(&content.value(), None, None)
         .and_then(|assembly| generate_code_for_content(&name.value(), &assembly));
     let expanded = match assembled {
-        Ok(generated) => generated,
+        Ok(generated) => generated.tokens,
         Err(message) => {
             return syn::Error::new(content.span(), message)
                 .to_compile_error()

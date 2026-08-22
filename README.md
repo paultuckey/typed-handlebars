@@ -78,7 +78,8 @@ template implies. Where a design choice trades build-time work against run-time 
 
 **The Handlebars author needs to know no Rust.** An `.hbs` file is plain Handlebars, written by someone who never has to
 think about what happens downstream. No Rust type names, no annotations, no macro-specific syntax — nothing in the
-template that a designer could not write, or that would stop the same file rendering under handlebars.js.
+template that a designer could not write, or that would stop the same file rendering under handlebars.js given the
+`registerHelper` calls it names.
 
 **The code generator takes on the complexity.** The template already says what data it needs: `{{#each rows}}{{ name }}`
 means a list of records with a `name`. The macro reads that and generates the types, so nobody has to declare them
@@ -108,6 +109,7 @@ construct, never a silent difference and never a Rust type error you would have 
 | `{{else if}}` / `{{else unless}}`           | chained onto `{{#if}}` / `{{#unless}}`, to any depth                             |
 | `{{#each rows}}`                            | with `{{this}}`, `{{@index}}` `{{@first}}` `{{@last}}`, `{{else}}`, `as \|row\|` |
 | `{{#with person}}`                          | see the divergence below                                                         |
+| `{{ t "Save" }}`                            | a helper (t): a method on the frame — see usage                                  |
 | `{{> row}}`                                 | partials, rendered against the context they were included from                   |
 | `{{! … }}` / `{{!-- … --}}`                 | comments, including the trimming closes `{{! … ~}}` and `{{!-- … --~}}`          |
 | `{{~ … ~}}`                                 | whitespace trimming                                                              |
@@ -119,16 +121,14 @@ construct, never a silent difference and never a Rust type error you would have 
 `{{@key}}` `{{@value}}` · `{{lookup}}` ·
 sub-expressions `( … )` · `{{#with}}` with `{{else}}` · partial arguments (`{{> row this}}`) ·
 inline partials (`{{#*inline}}`) · `[…]` path segments, both indexing (`{{ rows.[0] }}`) and
-quoted names (`{{ [odd name] }}`) · lists that are not slice-backed (`HashMap`, `VecDeque`).
+quoted names (`{{ [odd name] }}`) · lists that are not slice-backed (`HashMap`, `VecDeque`) ·
+hash arguments (`{{ t "Hello" name=user }}`) · block helpers (`{{#t}}Hello{{/t}}`) · a helper
+anywhere but where its result is written, such as `{{#if (t "x")}}`.
 
 ### Out of scope
 
-**Helpers** A helper would be Rust code, and a template that needs Rust code stops
-being something the designer can own. `{{myhelper x}}` and `{{log}}` are compile errors naming the
-helper. Anything a helper would have done belongs in the wiring.
-
 **Runtime template loading.** Templates are compiled into your binary, so there is nothing to load
-and no dynamic partial names.
+and no dynamic partial names. The aim of this project is compile time safety.
 
 ### Partials
 

@@ -105,17 +105,43 @@ fn find_closing(src: &str) -> Result<usize> {
     Err(ParseError::general("unmatched brackets").or_at(src))
 }
 
-fn find_end_of_string(src: &str) -> Result<usize> {
+fn find_end_of_string(src: &str, quote: char) -> Result<usize> {
     let cliped = &src[1..];
     let mut escaped = false;
     for (i, c) in cliped.char_indices() {
         match c {
             '\\' => escaped = !escaped,
-            '"' if !escaped => return Ok(i + 2),
-            _ => (),
+            c if c == quote && !escaped => return Ok(i + 1 + quote.len_utf8()),
+            _ => escaped = false,
         }
     }
     Err(ParseError::general("unterminated string").or_at(src))
+}
+
+/// The quote a string literal opens with, if this token is one.
+///
+/// Handlebars accepts both spellings — `{{ t "Save" }}` and `{{ t 'Save' }}` — and a designer has
+/// no reason to know that one of them was easier to lex.
+fn opening_quote(src: &str) -> Option<char> {
+    src.chars().next().filter(|c| *c == '"' || *c == '\'')
+}
+
+/// Whether a whole token is a number.
+///
+/// handlebars.js lexes `-?[0-9]+(\.[0-9]+)?` as a number, but only when the token ends there —
+/// which is what keeps `{{2nd}}` a path rather than a malformed number. Even then it is only a
+/// *literal* where it is an argument: a lone `{{ 42 }}` is resolved as a path, so `{{ 42 }}`
+/// against `{"42": "answer"}` writes `answer` rather than `42`. Position decides, so this is asked
+/// where an argument is read rather than while lexing.
+fn is_number(src: &str) -> bool {
+    let digits = src.strip_prefix('-').unwrap_or(src);
+    let (whole, fraction) = match digits.split_once('.') {
+        Some((whole, fraction)) => (whole, Some(fraction)),
+        None => (digits, None),
+    };
+    !whole.is_empty()
+        && whole.bytes().all(|b| b.is_ascii_digit())
+        && fraction.is_none_or(|f| !f.is_empty() && f.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// Finds the end of a token by looking for whitespace or special characters
@@ -161,11 +187,12 @@ fn parse<'a>(src: &'a str) -> Result<Option<Token<'a>>> {
         }
         None => None,
         _ => {
-            let (end, token_type) = if src.starts_with('"') {
-                (find_end_of_string(src)?, TokenType::Literal)
+            let (end, token_type) = if let Some(quote) = opening_quote(src) {
+                (find_end_of_string(src, quote)?, TokenType::Literal)
             } else {
+                let end = find_end(src);
                 (
-                    find_end(src),
+                    end,
                     if invalid_variable_name(src) {
                         TokenType::Literal
                     } else {
@@ -183,6 +210,32 @@ fn parse<'a>(src: &'a str) -> Result<Option<Token<'a>>> {
 }
 
 impl<'a> Token<'a> {
+    /// The text inside a quoted string literal, if this token is one.
+    ///
+    /// Handlebars accepts both spellings — `{{ t "Save" }}` and `{{ t 'Save' }}` — so both read as
+    /// `Save`.
+    pub fn quoted_text(&self) -> Option<&'a str> {
+        let quote = opening_quote(self.value)?;
+        self.value
+            .strip_prefix(quote)
+            .and_then(|rest| rest.strip_suffix(quote))
+    }
+
+    /// A literal's text with any quotes removed, or the token's value unchanged.
+    ///
+    /// A number reads as the digits the template spelled, which is what lets a helper argument be
+    /// handed over as the source text.
+    pub fn literal_text(&self) -> &'a str {
+        self.quoted_text().unwrap_or(self.value)
+    }
+
+    /// Whether this token is a number, and so a literal wherever it is an argument.
+    ///
+    /// See [`is_number`] for why position rather than lexing decides.
+    pub fn numeric(&self) -> bool {
+        is_number(self.value)
+    }
+
     /// Parses the first token from a string
     pub fn first(src: &'a str) -> Result<Option<Self>> {
         parse(src.trim())
