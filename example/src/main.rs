@@ -1,4 +1,3 @@
-
 mod templates {
     typed_handlebars::directory!("templates/");
     typed_handlebars::file!("template/button2.hbs");
@@ -80,7 +79,6 @@ fn main() {
     let html6 = templates::hello_money::Vars { total: 4200 }.render(&frame);
     println!("{}", html6);
 }
-
 
 // Frame is passed at render time beside the context.
 pub struct Frame {
