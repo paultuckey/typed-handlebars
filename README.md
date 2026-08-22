@@ -128,10 +128,7 @@ anywhere but where its result is written, such as `{{#if (t "x")}}`.
 ### Out of scope
 
 **Runtime template loading.** Templates are compiled into your binary, so there is nothing to load
-and no dynamic partial names.
-
-**Helper registration at runtime.** There is no registry to add to and no name to look up while
-your program runs — a helper is resolved at compile time against one named type. See below.
+and no dynamic partial names. The aim of this project is compile time safety.
 
 ### Partials
 
