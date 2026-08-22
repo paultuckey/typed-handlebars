@@ -9,6 +9,8 @@ version being released. See [docs/Release.md](docs/Release.md).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-22
+
 ### Added
 
 - **Helpers: `{{ t "Save" }}` calls a method on a frame you name.** Handlebars passes a template two
@@ -244,7 +246,8 @@ there is no parsing, registry or lookup at run time.
 - A **carriage return** in template text does not survive code generation, so a `.hbs` file saved
   with CRLF line endings renders with LF.
 
-[Unreleased]: https://github.com/paultuckey/typed-handlebars/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/paultuckey/typed-handlebars/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/paultuckey/typed-handlebars/releases/tag/v0.4.0
 [0.3.0]: https://github.com/paultuckey/typed-handlebars/releases/tag/v0.3.0
 [0.2.0]: https://github.com/paultuckey/typed-handlebars/releases/tag/v0.2.0
 [0.1.0]: https://github.com/paultuckey/typed-handlebars/releases/tag/v0.1.0
