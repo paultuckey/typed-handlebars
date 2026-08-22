@@ -523,6 +523,101 @@ describe('Handlebars Reference Tests', () => {
         assert.strictEqual(result, 'Hello King!');
     });
 
+    // Mirrors `tests/helpers.rs`. On the Rust side a helper is a method on the frame type named by
+    // `register_helper!`; here it is a `registerHelper` reading the same ambient state off
+    // `options.data`, which is what handlebars.js calls the data frame. The two have to agree on
+    // what a call writes.
+    describe('helpers', () => {
+        // A fresh environment per case, so a registration cannot leak into another test.
+        function withT() {
+            const hb = Handlebars.create();
+            hb.registerHelper('t', function (this: unknown, key: unknown, options: any) {
+                return `${options.data.root.__greeting ?? 'Hello'} ${key}`;
+            });
+            return hb;
+        }
+
+        it('a_helper_is_called_with_its_literal_argument', () => {
+            assert.strictEqual(withT().compile('<p>{{ t "world" }}</p>')({}), '<p>Hello world</p>');
+        });
+
+        // Mirrors `a_key_may_be_quoted_either_way`.
+        it('a_key_may_be_quoted_either_way', () => {
+            const hb = withT();
+            assert.strictEqual(
+                hb.compile(`{{ t "world" }}|{{ t 'world' }}`)({}),
+                'Hello world|Hello world',
+            );
+        });
+
+        // Mirrors `a_number_argument_arrives_as_its_own_text`. handlebars.js passes a number as a
+        // number; the Rust side passes the text the template spelled, so the two agree only once
+        // it is written out — which is all a template ever does with it.
+        it('a_number_argument_is_a_literal', () => {
+            const hb = Handlebars.create();
+            hb.registerHelper('shout', (value: unknown) => `${value}!`);
+            assert.strictEqual(hb.compile('{{ shout 123 }}|{{ shout -1.5 }}')({}), '123!|-1.5!');
+        });
+
+        // Mirrors `a_variable_argument_becomes_a_field`.
+        it('a_variable_argument_is_looked_up_in_the_context', () => {
+            const hb = Handlebars.create();
+            hb.registerHelper('shout', (value: unknown) => `${value}!`);
+            assert.strictEqual(hb.compile('{{ shout total }}')({ total: 4200 }), '4200!');
+        });
+
+        // Mirrors `a_helper_takes_as_many_arguments_as_its_method`.
+        it('a_helper_takes_more_than_one_argument', () => {
+            const hb = Handlebars.create();
+            hb.registerHelper('join', (left: unknown, right: unknown) => `${left}/${right}`);
+            assert.strictEqual(hb.compile('{{ join left "USD" }}')({ left: 42 }), '42/USD');
+        });
+
+        // Mirrors `a_helper_result_is_escaped_like_any_other_value`. The Rust side always escapes
+        // at `{{ }}`, so a shim must return a plain string: a `SafeString` would suppress the
+        // escaping here and silently diverge.
+        it('a_helper_result_is_escaped_unless_it_is_a_safe_string', () => {
+            const hb = Handlebars.create();
+            hb.registerHelper('tag', (name: unknown) => `<${name}>`);
+            assert.strictEqual(hb.compile('{{ tag "b" }}|{{{ tag "b" }}}')({}), '&lt;b&gt;|<b>');
+
+            const unsafe = Handlebars.create();
+            unsafe.registerHelper('tag', (name: unknown) => new Handlebars.SafeString(`<${name}>`));
+            assert.strictEqual(unsafe.compile('{{ tag "b" }}')({}), '<b>');
+        });
+
+        // Mirrors `a_helper_works_inside_a_loop`: the frame is ambient, so a loop does not change
+        // it, while an argument resolves in the scope it sits in.
+        it('a_helper_works_inside_a_loop', () => {
+            const hb = Handlebars.create();
+            hb.registerHelper('shout', (value: unknown) => `${value}!`);
+            assert.strictEqual(
+                hb.compile('{{#each rows}}[{{ shout name }}]{{/each}}')({
+                    rows: [{ name: 'a' }, { name: 'b' }],
+                }),
+                '[a!][b!]',
+            );
+        });
+
+        // Where the two deliberately differ, and the reason the Rust side requires a helper to
+        // take at least one argument. Registering `t` shadows a `t` in the data even for a bare
+        // `{{t}}`; typed-handlebars reads that as a variable, because a name with no arguments is
+        // indistinguishable from one at compile time.
+        it('a_bare_name_is_the_helper_only_once_one_is_registered', () => {
+            assert.strictEqual(Handlebars.create().compile('{{t}}')({ t: 'data' }), 'data');
+
+            const hb = Handlebars.create();
+            hb.registerHelper('t', () => 'helper');
+            assert.strictEqual(hb.compile('{{t}}')({ t: 'data' }), 'helper');
+        });
+
+        // The other deliberate difference: a missing helper is a render-time throw here and a
+        // compile error on the Rust side — see `tests/ui/helpers.rs`.
+        it('a_missing_helper_throws_at_render_time', () => {
+            assert.throws(() => Handlebars.create().compile('{{ t "world" }}')({}), /Missing helper/);
+        });
+    });
+
     it.skip('test_escaped', () => {
         // Handlebars JS parser throws "skip doesn't match dandy"
         // It seems it gets confused by the inner {{{{/dandy}}}}

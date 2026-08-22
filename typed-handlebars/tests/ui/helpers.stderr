@@ -1,0 +1,25 @@
+error: line 1, column 3: `lookup` is built in, so it cannot also be a helper on the frame type — rename the method
+ --> tests/ui/helpers.rs:9:40
+  |
+9 |         typed_handlebars::str!("page", "{{ lookup rows 1 }}");
+  |                                        ^^^^^^^^^^^^^^^^^^^^^
+
+error: line 1, column 3: a hash argument like `name=…` is not supported yet
+  --> tests/ui/helpers.rs:17:40
+   |
+17 |         typed_handlebars::str!("page", r#"{{ t "Hello {name}" name=user }}"#);
+   |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: line 1, column 13: `t` is a helper, and a helper call is only supported where its result is written — `{{ t … }}` — not as a condition
+  --> tests/ui/helpers.rs:25:40
+   |
+25 |         typed_handlebars::str!("page", r#"{{#if a}}1{{else if t "b"}}2{{/if}}"#);
+   |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `t` found for reference `&no_such_method::Ctx` in the current scope
+  --> tests/ui/helpers.rs:34:9
+   |
+34 |         typed_handlebars::str!("page", r#"{{ t "Save" }}"#);
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `&no_such_method::Ctx`
+   |
+   = note: this error originates in the macro `typed_handlebars::str` (in Nightly builds, run with -Z macro-backtrace for more info)

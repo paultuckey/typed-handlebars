@@ -1,0 +1,7 @@
+error[E0425]: cannot find type `Frame` in module `super`
+ --> tests/ui/helper_without_a_frame.rs:8:5
+  |
+8 |     typed_handlebars::str!("page", r#"{{ t "Save" }}"#);
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in `super`
+  |
+  = note: this error originates in the macro `typed_handlebars::str` (in Nightly builds, run with -Z macro-backtrace for more info)

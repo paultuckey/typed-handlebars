@@ -365,8 +365,9 @@ fn scan_else(
 
 /// Records every variable an expression reads.
 ///
-/// A bare `{{ name }}` is a variable. Anything with a head plus arguments is a helper call, which
-/// this crate does not have — see [`check_helper`].
+/// A bare `{{ name }}` is a variable. Anything with a head plus arguments is a helper call — the
+/// head names a method on the frame type rather than any data, so only the arguments are recorded.
+/// See [`check_helper`].
 fn scan_expression(
     frames: &mut [Frame],
     content: &str,
@@ -381,12 +382,20 @@ fn scan_expression(
         return Err(unsupported("a sub-expression like `(helper arg)`", expr));
     }
     match token.next()? {
-        // Head plus arguments: a helper call. Only the arguments name data.
+        // Head plus arguments: a helper call. The head is a method name, so only the arguments
+        // name data.
         Some(first_arg) => {
-            check_helper(&token, expr)?;
+            check_helper(&token, mark, expr)?;
             let mut arg = first_arg;
             loop {
-                scan_token(frames, &arg, mark, expr)?;
+                check_hash_argument(&arg, expr)?;
+                // A number is a literal in argument position, where `{{ 42 }}` on its own is a
+                // path — so it names no data here, however the tokenizer classified it.
+                if !arg.numeric() {
+                    // Whatever the surrounding expression does with the result, an argument is
+                    // handed to the helper as a written value — so it is marked as one.
+                    scan_token(frames, &arg, Mark::Value, expr)?;
+                }
                 arg = match arg.next()? {
                     Some(next) => next,
                     None => return Ok(()),
@@ -429,20 +438,62 @@ fn scan_token(
 /// so admitting them here would only move the failure to a Rust error.
 const PRIVATE: [&str; 3] = ["index", "first", "last"];
 
-/// Rejects a helper call, rather than emitting a call to a function that does not exist and letting
-/// the Rust compiler complain about it.
+/// Names a helper cannot take.
 ///
-/// There are no inline helpers. A helper is Rust code, and a template that needs Rust code stops
-/// being something a designer can own — so anything a helper would do belongs in the wiring instead.
-fn check_helper(head: &Token<'_>, expr: &Expression<'_>) -> Result<()> {
-    if let TokenType::Variable = head.token_type {
+/// `each`, `if`, `unless` and `with` are the block forms this crate compiles itself, and `lookup`
+/// and `log` are handlebars.js builtins it does not — letting any of them reach the frame would
+/// mean the same spelling doing two different things depending on where it appeared.
+const RESERVED: [&str; 6] = ["each", "if", "unless", "with", "lookup", "log"];
+
+/// Checks the head of a helper call.
+///
+/// A helper is a method on the frame type — the value passed to `render` alongside the data — so
+/// the head has to be a plain name, and the call has to be in a position where its result is
+/// written out.
+fn check_helper(head: &Token<'_>, mark: Mark, expr: &Expression<'_>) -> Result<()> {
+    let TokenType::Variable = head.token_type else {
+        return Err(ParseError::new(
+            "a helper call starts with the helper's name, as in `{{ t \"Save\" }}`",
+            expr,
+        ));
+    };
+    if RESERVED.contains(&head.value) {
         return Err(ParseError::new(
             &format!(
-                "`{}` is a helper, and helpers are out of scope — they would be Rust code inside a \
-                 template. Do it in Rust when you set the value instead, e.g. \
-                 `format!(\"{{:.2}}\", price)`",
+                "`{}` is built in, so it cannot also be a helper on the frame type — rename the \
+                 method",
                 head.value
             ),
+            expr,
+        ));
+    }
+    if let Mark::Value = mark {
+        return Ok(());
+    }
+    // `{{#if (t "x")}}` is the handlebars.js spelling and it needs sub-expressions, which are not
+    // supported either. Saying so here keeps the template author out of the generated Rust.
+    Err(ParseError::new(
+        &format!(
+            "`{}` is a helper, and a helper call is only supported where its result is written — \
+             `{{{{ {} … }}}}` — not as a condition",
+            head.value, head.value
+        ),
+        expr,
+    ))
+}
+
+/// Rejects a hash argument by name.
+///
+/// `{{ t "Hello {name}" name=user }}` is how handlebars.js passes named arguments, and it is the
+/// usual spelling for interpolation and plurals. It is not supported yet, and left alone the
+/// tokenizer would read `name=user` as a variable of that name — a field that compiles, asks the
+/// caller for something meaningless, and renders the wrong thing.
+fn check_hash_argument(arg: &Token<'_>, expr: &Expression<'_>) -> Result<()> {
+    if let TokenType::Variable = arg.token_type
+        && let Some((name, _)) = arg.value.split_once('=')
+    {
+        return Err(unsupported(
+            &format!("a hash argument like `{}=…`", name),
             expr,
         ));
     }
@@ -918,14 +969,40 @@ mod tests {
         assert_eq!(names(sequence(rows, "rows")), ["name"]);
     }
 
-    /// A helper is Rust code, so a template cannot call one. Rejecting it here means the developer
-    /// gets a message about their template rather than "cannot find function" from rustc.
+    /// A helper's head names a method on the frame, not data — so it never becomes a field.
     #[test]
-    fn a_helper_call_is_rejected_by_name() {
-        let err = build(r#"Price: ${{format "{:.2}" price}}"#).unwrap_err();
+    fn a_helper_name_is_not_a_variable() {
+        assert_eq!(names(&ctx(r#"{{ t "Save" }}{{ title }}"#)), ["title"]);
+    }
+
+    /// A literal argument names no data either, but anything else does.
+    #[test]
+    fn only_a_helpers_non_literal_arguments_are_fields() {
+        assert_eq!(
+            names(&ctx(r#"{{ money total }}{{ join "USD" other 42 }}"#)),
+            ["total", "other"]
+        );
+    }
+
+    /// Reserved because the same spelling already means something else here.
+    #[test]
+    fn a_built_in_name_cannot_be_a_helper() {
+        let err = build("{{lookup rows 1}}").unwrap_err();
         assert!(
-            err.to_string().contains("format") && err.to_string().contains("helper"),
-            "error should name the helper: {}",
+            err.to_string().contains("lookup") && err.to_string().contains("built in"),
+            "error should name the builtin: {}",
+            err
+        );
+    }
+
+    /// A hash argument would otherwise lex as a variable called `name=user` — a field that
+    /// compiles and asks the caller for something meaningless.
+    #[test]
+    fn a_hash_argument_is_rejected_by_name() {
+        let err = build(r#"{{ t "Hello" name=user }}"#).unwrap_err();
+        assert!(
+            err.to_string().contains("name=") && err.to_string().contains("not supported"),
+            "error should name the hash argument: {}",
             err
         );
     }

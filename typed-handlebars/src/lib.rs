@@ -184,6 +184,47 @@ pub use typed_handlebars_macros::typed_handlebars_file as file;
 #[doc(inline)]
 pub use typed_handlebars_macros::typed_handlebars_str as str;
 
+/// Names the *frame*: the type whose methods a template's helper calls resolve on.
+///
+/// Handlebars gives a template two things — the data, and a *data frame* of ambient state passed
+/// at render time (`options.data` in handlebars.js, which is where a `{{ t "…" }}` helper reads
+/// its locale from). `Vars` is the data. This names the frame, and a helper is one of its methods:
+///
+/// ```
+/// pub struct Ctx {
+///     greeting: &'static str,
+/// }
+///
+/// impl Ctx {
+///     pub fn t(&self, key: &str) -> String {
+///         format!("{} {}", self.greeting, key)
+///     }
+/// }
+///
+/// mod templates {
+///     typed_handlebars::register_helper!(crate::Ctx);
+///     typed_handlebars::str!("hello", "<p>{{ t \"world\" }}</p>");
+/// }
+///
+/// // Spelled out, so the items above sit at the crate root that `crate::Ctx` names.
+/// fn main() {
+///     let ctx = Ctx { greeting: "Hello" };
+///     assert_eq!(templates::hello::Vars.render(&ctx), "<p>Hello world</p>");
+/// }
+/// ```
+///
+/// Put it in the same module as the templates. Only templates that call a helper take the frame,
+/// so adding `{{ t "…" }}` to one is what makes its call sites ask for it.
+///
+/// Every argument reaches the helper as a `&str`. A quoted string or a number is passed as the
+/// text the template spelled — `{{ money 123 }}` calls `money("123")` — and anything else is a
+/// variable, written out the way `{{{ … }}}` would write it and handed over as that text.
+///
+/// Nothing is checked here: a proc macro sees tokens rather than types, so a missing or misspelled
+/// helper is caught by the generated call, as `no method named `t` found for struct `Ctx``.
+#[doc(inline)]
+pub use typed_handlebars_macros::typed_handlebars_register_helper as register_helper;
+
 /// A variable that was never given a value.
 ///
 /// Handlebars treats an undefined variable as empty, and so does this: `Empty` writes nothing when

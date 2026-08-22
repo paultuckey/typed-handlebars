@@ -177,3 +177,55 @@ error: templates/results.hbs:2:6: `{{#each}}` is never closed — it needs a mat
 
 Constructs that are not supported yet say so by name rather than turning into a Rust error. With
 `directory!`, one broken template does not stop the others compiling.
+
+
+### Helpers
+
+Handlebars gives a template two things: the data, and a *data frame* of ambient state passed at
+render time — `options.data` in handlebars.js, which is where a `{{ t "…" }}` helper reads its
+locale from. `Vars` is the data. `register_helper!` names the frame, and a helper is one of its
+methods:
+
+```rust
+pub struct Frame { locale: Locale }
+
+impl Frame {
+    pub fn t(&self, key: &str) -> String { self.locale.lookup(key) }
+}
+
+mod templates {
+    typed_handlebars::register_helper!(crate::Frame);
+    typed_handlebars::directory!("templates/");
+}
+```
+
+`templates/page.hbs`:
+
+```handlebars
+<button>{{ t "Save" }}</button>
+```
+
+```rust
+templates::page::Vars { … }.render(&frame)
+```
+
+Only a template that calls a helper takes the frame, so adding `{{ t "…" }}` to one is what makes
+its call sites ask for it — the same way adding a variable does. A partial counts: its helper calls
+belong to whoever includes it.
+
+Every argument reaches the helper as a `&str`. A quoted string or a number is passed as the text
+the template spelled, so `{{ money 123 }}` calls `money("123")`; anything else is a variable,
+written out the way `{{{ … }}}` would write it and handed over as that text. Arity is the method's
+business, so `{{ money_in total "USD" }}` needs nothing extra. The result is written like any other
+value, so `{{ }}` escapes it and `{{{ }}}` does not.
+
+Nothing about the method is checked while the macro runs — a proc macro sees tokens, not types — so
+a helper that does not exist is caught by the generated call:
+
+```
+error[E0599]: no method named `t` found for reference `&Ctx` in the current scope
+```
+
+That names the helper and the frame, but it points at the macro invocation rather than the `.hbs`
+line, since a macro has no span into an external file. What the template *can* reject itself — an
+unknown block, a hash argument, a built-in name — it still does, against your file and line.

@@ -1,3 +1,4 @@
+
 mod templates {
     typed_handlebars::directory!("templates/");
     typed_handlebars::file!("template/button2.hbs");
@@ -6,6 +7,16 @@ mod templates {
         "hello_first_last",
         r#"
         <p>Hello {{firstname}} {{lastname}}</p>
+    "#
+    );
+    // Basic helpers are supported
+    typed_handlebars::register_helper!(crate::Frame);
+    //language=html
+    typed_handlebars::str!(
+        "hello_money",
+        r#"
+        <p>{{ hello "world" }}</p>
+        <p>{{ money total }}</p>
     "#
     );
 }
@@ -59,4 +70,30 @@ fn main() {
         .list_name("Nothing to do")
         .render();
     println!("{}", html5);
+
+    // A template that calls a helper asks for the frame as well as the data. The ones above call
+    // none, so their `render()` is unchanged.
+    let frame = Frame {
+        greeting: "Hello",
+        currency: "$",
+    };
+    let html6 = templates::hello_money::Vars { total: 4200 }.render(&frame);
+    println!("{}", html6);
+}
+
+
+// Frame is passed at render time beside the context.
+pub struct Frame {
+    greeting: &'static str,
+    currency: &'static str,
+}
+
+impl Frame {
+    pub fn hello(&self, key: &str) -> String {
+        format!("{} {}", self.greeting, key)
+    }
+
+    pub fn money(&self, amount: &str) -> String {
+        format!("${}{}", self.currency, amount)
+    }
 }

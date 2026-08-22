@@ -214,6 +214,7 @@ fn builder_for(
     shape: &Shape,
     root: bool,
     runtime: &TokenStream,
+    frame: &FrameTokens,
 ) -> TokenStream {
     if shape.names.is_empty() {
         // A template with no variables has nothing to wire up.
@@ -280,15 +281,20 @@ fn builder_for(
     // Only the root renders, and rendering is where every bound in the subtree lives — so its
     // signature carries the render method's own generics on top of the built type's.
     let render = if root {
+        let frame_param = &frame.param;
+        let frame_argument = &frame.argument;
         quote! {
             /// Renders straight from the builder.
-            pub fn render<#(#params,)* #(#method_params),*>(self) -> ::std::string::String
+            pub fn render<#(#params,)* #(#method_params),*>(
+                self,
+                #frame_param
+            ) -> ::std::string::String
             where
                 #(#slots: #runtime::IsSet<Value = #types>,)*
                 #(#predicates,)*
             {
                 let built: #type_name<#(#params),*> = self.build();
-                built.render()
+                built.render(#frame_argument)
             }
         }
     } else {
@@ -401,10 +407,22 @@ pub struct Types {
     pub declarations: Vec<TokenStream>,
 }
 
+/// How a template's render methods take the frame — empty when it calls no helper.
+///
+/// Built once by the caller so that the type's own render methods and the builder's shortcut to
+/// them agree, since a mismatch would only show up as a Rust error against generated code.
+#[derive(Default)]
+pub struct FrameTokens {
+    /// The parameter, as a signature spells it.
+    pub param: TokenStream,
+    /// The name to pass it on by.
+    pub argument: TokenStream,
+}
+
 /// Builds the types for a template.
 ///
 /// Everything comes from the template: it is the only place that describes the data.
-pub fn generate(context: &Context, runtime: &TokenStream) -> Types {
+pub fn generate(context: &Context, runtime: &TokenStream, frame: &FrameTokens) -> Types {
     let mut state = State {
         counter: 0,
         runtime: runtime.clone(),
@@ -425,6 +443,7 @@ pub fn generate(context: &Context, runtime: &TokenStream) -> Types {
         &shape,
         true,
         &state.runtime,
+        frame,
     );
 
     Types {
@@ -645,7 +664,15 @@ fn declare(
     let params = &shape.params;
     let declarations = &shape.declarations;
     let builder_name = format_ident!("{}Builder", type_name);
-    let builder = builder_for(type_name, &builder_name, &shape, false, &runtime);
+    // A nested type does not render, so it never takes the frame.
+    let builder = builder_for(
+        type_name,
+        &builder_name,
+        &shape,
+        false,
+        &runtime,
+        &FrameTokens::default(),
+    );
 
     nested.push(quote! {
         #[doc = #doc]
